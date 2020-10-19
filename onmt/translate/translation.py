@@ -1,6 +1,7 @@
 """ Translation main class """
 from __future__ import unicode_literals, print_function
 
+from onmt.inputters.dataset_base import PAD_WORD
 import torch
 
 
@@ -74,10 +75,14 @@ class TranslationBuilder(object):
             if data_type == 'text':
                 src_vocab = self.data.src_vocabs[inds[b]] \
                     if self.data.src_vocabs else None
+                knl_raw = self.data.examples[inds[b]].knl
                 src_raw = self.data.examples[inds[b]].src
+                tgt_raw = self.data.examples[inds[b]].tgt
             else:
                 src_vocab = None
+                knl_raw = None
                 src_raw = None
+                tgt_raw = None
             pred_sents = [self._build_target_tokens(
                 src[:, b] if src is not None else None,
                 src_vocab, src_raw,
@@ -92,7 +97,7 @@ class TranslationBuilder(object):
 
             translation = Translation(
                 src[:, b] if src is not None else None,
-                src_raw, pred_sents, attn[b], pred_score[b],
+                knl_raw, src_raw, tgt_raw, pred_sents, attn[b], pred_score[b],
                 gold_sent, gold_score[b]
             )
             translations.append(translation)
@@ -116,10 +121,12 @@ class Translation(object):
 
     """
 
-    def __init__(self, src, src_raw, pred_sents,
+    def __init__(self, src, knl_raw, src_raw, tgt_raw, pred_sents,
                  attn, pred_scores, tgt_sent, gold_score):
         self.src = src
+        self.knl_raw = knl_raw
         self.src_raw = src_raw
+        self.tgt_raw = tgt_raw
         self.pred_sents = pred_sents
         self.attns = attn
         self.pred_scores = pred_scores
@@ -131,7 +138,28 @@ class Translation(object):
         Log translation.
         """
 
-        output = '\nSENT {}: {}\n'.format(sent_number, self.src_raw)
+        output = '------------------------- DIALOGUE {} -------------------------\n\n'.format(sent_number)
+
+        #TODO: 最大文字数で分割してから<blank>を取り除く
+        knl_seq_length_trunc=200
+        src_seq_length_trunc=50
+
+        output += '{}{}\n'.format(len(list(self.knl_raw)), len(list(self.src_raw)))
+
+        output += '\nKNL {}:\n'.format(sent_number)
+        tmp = [i for i in ' '.join(list(self.knl_raw)).split(PAD_WORD) if i != ' ']
+        for i in tmp:
+            output += '\t{}\n\n'.format(i)
+
+        output += '\nSRC {}:\n'.format(sent_number)
+        tmp = [i for i in ' '.join(list(self.src_raw)).split(PAD_WORD) if i != ' ']
+        for i in tmp:
+            output += '\t{}\n\n'.format(i)
+
+        output += '\nTGT {}:\n'.format(sent_number)
+        tmp = [i for i in ' '.join(list(self.tgt_raw)).split(PAD_WORD) if i != ' ']
+        for i in tmp:
+            output += '\t{}\n\n'.format(i)
 
         best_pred = self.pred_sents[0]
         best_score = self.pred_scores[0]
