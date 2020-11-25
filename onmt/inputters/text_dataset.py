@@ -62,6 +62,7 @@ class TextDataset(DatasetBase):
     def make_examples(cls, sequences, truncate, side):
         """
         Args:
+            cls: used class
             sequences: path to corpus file or iterable
             truncate (int): maximum sequence length (0 for unlimited).
             side (str): "src" or "tgt".
@@ -107,10 +108,22 @@ class TextDataset(DatasetBase):
             words, feats, _ = TextDataset.extract_text_features(seq)
 
             example_dict = {side: words, "indices": i}
+
             if feats:
                 prefix = side + "_feat_"
                 example_dict.update((prefix + str(j), f)
                                     for j, f in enumerate(feats))
+
+            # add Dialogue Act Label
+            # TODO: sequenceから非ダミーのDA Labelを取得する
+            # MEMO: src-train-tokenized.txt.0.txt, tgt-train-tokenized.txt.0.txt には
+            # DAラベルが入っている前提
+            if side == "src":
+                example_dict.update({"src_da_label": ("I", "I", "I")})
+
+            if side == "tgt":
+                example_dict.update({"tgt_da_label": ("I")})
+
             yield example_dict
 
     @classmethod

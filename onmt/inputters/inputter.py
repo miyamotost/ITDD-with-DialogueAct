@@ -91,10 +91,11 @@ def get_fields(src_data_type, n_src_features, n_tgt_features, n_knl_features):
 
     if src_data_type == 'text':
         fields["src"] = Field(pad_token=PAD_WORD, include_lengths=True)
+        print("[onmt.inputter.inputters.py] fields['src'].unk_token:{}".format(fields['src'].unk_token))
         for i in range(n_src_features):
             fields["src_feat_" + str(i)] = Field(pad_token=PAD_WORD)
         fields["knl"] = Field(pad_token=PAD_WORD, include_lengths=True)
-        for i in range(n_src_features):
+        for i in range(n_knl_features):
             fields["knl_feat_" + str(i)] = Field(pad_token=PAD_WORD)
     elif src_data_type == 'img':
         fields["src"] = Field(
@@ -130,6 +131,11 @@ def get_fields(src_data_type, n_src_features, n_tgt_features, n_knl_features):
     fields["indices"] = Field(
         use_vocab=False, dtype=torch.long, sequential=False)
 
+    # using Dialogue Act Label
+    if src_data_type == 'text':
+        fields["src_da_label"] = Field(sequential=False, use_vocab=False)
+        fields["tgt_da_label"] = Field(sequential=False, use_vocab=False)
+
     return fields
 
 
@@ -162,7 +168,7 @@ def save_fields_to_vocab(fields):
             if f is not None and 'vocab' in f.__dict__]
 
 
-def make_features(batch, side, data_type='text'):
+def make_features(batch, side, data_type='text', model_mode='default'):
     """
     Args:
         batch (Tensor): a batch of source or target data.
@@ -175,16 +181,24 @@ def make_features(batch, side, data_type='text'):
     """
     assert side in ['knl', 'src', 'tgt']
     if isinstance(batch.__dict__[side], tuple):
+        # [length x size]
+        # src: [150, 13], knl: [800, 13], tgt: [tgt sentence length ?, 13]
         data = batch.__dict__[side][0]
     else:
         data = batch.__dict__[side]
 
     feat_start = side + "_feat_"
+    print("onmt.inputters.inputter.py: {}".format([k for k in batch.__dict__]))
+    print("onmt.inputters.inputter.py: {}".format(feat_start))
     keys = sorted([k for k in batch.__dict__ if feat_start in k])
     features = [batch.__dict__[k] for k in keys]
+    print("onmt.inputters.inputter.py: {}".format(features))
     levels = [data] + features
+    print("onmt.inputters.inputter.py: {}".format(data.shape))
+    print("onmt.inputters.inputter.py: {}".format(model_mode))
 
     if data_type == 'text':
+        # ここでdataとfeatureを結合?
         return torch.cat([level.unsqueeze(2) for level in levels], 2)
     else:
         return levels[0]
@@ -271,9 +285,12 @@ def build_dataset(fields, data_type, src, knl,
         filter_pred = None
 
     dataset_cls = dataset_classes[data_type]
+    print("[onmt.inputters.inputter.py] dataset_cls:{}".format(dataset_cls))
     dataset = dataset_cls(
         fields, src_examples_iter, tgt_examples_iter, knl_examples_iter,
-        dynamic_dict=dynamic_dict, filter_pred=filter_pred)
+        dynamic_dict=dynamic_dict, filter_pred=filter_pred
+    )
+    print("[onmt.inputters.inputter.py] dataset:{}".format(dataset))
     return dataset
 
 

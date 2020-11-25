@@ -52,6 +52,8 @@ class DatasetBase(torchtext.data.Dataset):
 
         # self.src_vocabs is used in collapse_copy_scores and in Translator.py
         self.src_vocabs = []
+        print("[onmt.inputters.dataset_base.py] dynamic_dict:{}".format(dynamic_dict))
+
         if dynamic_dict:
             unk, pad = fields['src'].unk_token, fields['src'].pad_token
             examples_iter = (self._dynamic_dict(ex, unk, pad)
@@ -60,6 +62,8 @@ class DatasetBase(torchtext.data.Dataset):
         # Peek at the first to see which fields are used.
         ex, examples_iter = self._peek(examples_iter)
         keys = ex.keys()
+
+        print("[onmt.inputters.dataset_base.py] ex:{}".format(ex.keys()))
 
         # why do we need to use different keys from the ones passed in?
         fields = [(k, fields[k]) if k in fields else (k, None) for k in keys]

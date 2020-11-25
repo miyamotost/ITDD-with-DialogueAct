@@ -98,6 +98,7 @@ def build_save_dataset(corpus_type, fields, opt):
 
     for i, (knl_shard, src_shard, tgt_shard) in enumerate(shard_pairs):
         logger.info("Building shard %d." % i)
+        # TODO: src, knl, tgtにDAラベルを埋め込む
         dataset = inputters.build_dataset(
             fields, opt.data_type,
             src=src_shard,
@@ -191,6 +192,9 @@ def main():
 
     logger.info("Building `Fields` object...")
     fields = inputters.get_fields(opt.data_type, src_nfeats, tgt_nfeats, knl_nfeats)
+    # fields = inputters.get_fields(opt.data_type, 1, 1, knl_nfeats)
+    # {'src', 'src_feat_0', 'knl', 'src_map', 'alignment', 'tgt', 'tgt_feat_0', 'indices'}
+    # {'src' 'knl', 'src_map', 'alignment', 'tgt', 'indices', 'src_da_label', 'tgt_da_label'}
 
     logger.info("Building & saving training data...")
     train_dataset_files = build_save_dataset('train', fields, opt)
