@@ -5,6 +5,13 @@ import configargparse
 from onmt.models.sru import CheckSRU
 
 
+def general_opts(parser):
+    parser.add('--model_mode', '-model_mode', required=True,
+               type=str, default='default',
+               choices=['default', 'single-act-in-encoder'],
+               help='Specify the model which used for training or predicting.')
+
+
 def config_opts(parser):
     parser.add('-config', '--config', required=False,
                is_config_file_arg=True, help='config file path')
