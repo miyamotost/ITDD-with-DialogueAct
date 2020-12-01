@@ -1,3 +1,10 @@
+## ITDD with DialogueAct
+
+### Usage
+
+The model has two mode. The one mode predicts normally, the other mode do with act label.
+
+
 ## Incremental Transformer with Deliberation Decoder for Document Grounded Conversations
 
 This is the PyTorch implementation of paper: **[Incremental Transformer with Deliberation Decoder for Document Grounded Conversations](<https://arxiv.org/abs/1907.08854>)**. [**Zekang Li**](https://www.zekangli.com), [Cheng Niu](#), [Fandong Meng](#), [Yang Feng](#), [Qian Li](#), [Jie Zhou](#). ***ACL 2019***.
@@ -66,7 +73,7 @@ pip install -r requirements.txt
    		-tgt_seq_length_trunc 50 \
    		-knl_seq_length_trunc 200 \
    		-src_seq_length 150 \
-   		-knl_seq_length 800 
+   		-knl_seq_length 800
    ```
 
 2. Train
@@ -79,7 +86,7 @@ pip install -r requirements.txt
 
    ```shell
    python translate.py \
-   		--src data/src-test-tokenized.txt \ 
+   		--src data/src-test-tokenized.txt \
    		--tgt data/tgt-test-tokenized.txt \
    		--knl data/knl-test-tokenized.txt \
    		--model models/base_model_step_20000.pt \
