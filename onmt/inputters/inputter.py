@@ -91,7 +91,7 @@ def get_fields(src_data_type, n_src_features, n_tgt_features, n_knl_features):
 
     if src_data_type == 'text':
         fields["src"] = Field(pad_token=PAD_WORD, include_lengths=True)
-        print("[onmt.inputter.inputters.py] fields['src'].unk_token:{}".format(fields['src'].unk_token))
+        #print("[onmt.inputter.inputters.py] fields['src'].unk_token:{}".format(fields['src'].unk_token))
         for i in range(n_src_features):
             fields["src_feat_" + str(i)] = Field(pad_token=PAD_WORD)
         fields["knl"] = Field(pad_token=PAD_WORD, include_lengths=True)
@@ -188,14 +188,13 @@ def make_features(batch, side, data_type='text', model_mode='default'):
         data = batch.__dict__[side]
 
     feat_start = side + "_feat_"
-    print("onmt.inputters.inputter.py: {}".format([k for k in batch.__dict__]))
-    print("onmt.inputters.inputter.py: {}".format(feat_start))
+    #print("[onmt.inputters.inputter.py] feat_start: {}".format(feat_start))
     keys = sorted([k for k in batch.__dict__ if feat_start in k])
     features = [batch.__dict__[k] for k in keys]
-    print("onmt.inputters.inputter.py: {}".format(features))
+    #print("[onmt.inputters.inputter.py] features: {}".format(features))
     levels = [data] + features
-    print("onmt.inputters.inputter.py: {}".format(data.shape))
-    print("onmt.inputters.inputter.py: {}".format(model_mode))
+    #print("[onmt.inputters.inputter.py] data.shape: {}".format(data.shape))
+    #print("[onmt.inputters.inputter.py] model_mode: {}".format(model_mode))
 
     if data_type == 'text':
         # ここでdataとfeatureを結合?
@@ -237,7 +236,7 @@ def build_dataset(fields, data_type, src, knl,
                   dynamic_dict=False, sample_rate=0,
                   window_size=0, window_stride=0, window=None,
                   normalize_audio=True, use_filter_pred=True,
-                  image_channel_size=3):
+                  image_channel_size=3, corpus_type='train'):
     """
     src: path to corpus file or iterator over source data
     tgt: path to corpus file, iterator over target data, or None
@@ -251,10 +250,10 @@ def build_dataset(fields, data_type, src, knl,
         'it is not possible to use dynamic_dict with non-text input'
     if data_type == 'text':
         src_examples_iter = TextDataset.make_examples(
-            src, src_seq_length_trunc, "src"
+            src, src_seq_length_trunc, "src", corpus_type
         )
         knl_examples_iter = TextDataset.make_examples(
-            knl, knl_seq_length_trunc, "knl"
+            knl, knl_seq_length_trunc, "knl", corpus_type
         )
     elif data_type == 'img':
         # there is a truncate argument as well, but it was never set to
@@ -272,7 +271,7 @@ def build_dataset(fields, data_type, src, knl,
         tgt_examples_iter = None
     else:
         tgt_examples_iter = TextDataset.make_examples(
-            tgt, tgt_seq_length_trunc, "tgt")
+            tgt, tgt_seq_length_trunc, "tgt", corpus_type)
 
     # the second conjunct means nothing will be filtered at translation time
     # if there is no target data

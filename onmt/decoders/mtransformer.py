@@ -41,19 +41,20 @@ class TransformerDecoderLayer(nn.Module):
             heads, d_model, dropout=dropout)
         self.history_attn = onmt.modules.MultiHeadedAttention(
             heads, d_model, dropout=dropout)
-        self.feed_forward = PositionwiseFeedForward(d_model, d_ff, dropout)
+        self.feed_forward = PositionwiseFeedForward(d_model+1, d_ff, dropout)
         self.layer_norm_1 = nn.LayerNorm(d_model, eps=1e-6)
         self.layer_norm_2 = nn.LayerNorm(d_model, eps=1e-6)
         self.layer_norm_3 = nn.LayerNorm(d_model, eps=1e-6)
         self.dropout = dropout
         self.drop = nn.Dropout(dropout)
+        self.feed_forward2 = nn.Linear(d_model+1, d_model)
         mask = self._get_attn_subsequent_mask(MAX_SIZE)
         # Register self.mask as a buffer in TransformerDecoderLayer, so
         # it gets TransformerDecoderLayer's cuda behavior automatically.
         self.register_buffer('mask', mask)
 
     def forward(self, inputs, src_bank, knl_bank, src_pad_mask, knl_pad_mask, tgt_pad_mask,
-                layer_cache=None, step=None):
+                tgt_da_label, layer_cache=None, step=None):
         """
         Args:
             inputs (`FloatTensor`): `[batch_size x 1 x model_dim]`
@@ -100,9 +101,17 @@ class TransformerDecoderLayer(nn.Module):
                                       layer_cache=layer_cache,
                                       type="src")
 
-        output = self.feed_forward(self.drop(out) + knl_out)
+        out = self.drop(out) + knl_out
 
-        return output, attn
+        da_emb = torch.empty(out.shape[0], out.shape[1], 1, device=out.device)
+        for i in range(out.shape[0]):
+            da_emb[i].fill_(tgt_da_label[0][i])
+
+        out = torch.cat((out, da_emb), dim=2) # out.shape = torch.Size([13, x, 513])
+        out = self.feed_forward(out)          # out.shape = torch.Size([13, x, 513])
+        out = self.feed_forward2(out)         # out.shape = torch.Size([13, x, 512])
+
+        return out, attn
 
     def _get_attn_subsequent_mask(self, size):
         """
@@ -204,7 +213,7 @@ class TransformerDecoder(nn.Module):
         self.state["src"] = self.state["src"].detach()
         self.state["knl"] = self.state["knl"].detach()
 
-    def forward(self, tgt, src_bank, knl_bank, memory_lengths=None, step=None):
+    def forward(self, tgt, src_bank, knl_bank, tgt_da_label, memory_lengths=None, step=None):
         """
         See :obj:`onmt.modules.RNNDecoderBase.forward()`
         """
@@ -247,10 +256,13 @@ class TransformerDecoder(nn.Module):
                 src_pad_mask,
                 knl_pad_mask,
                 tgt_pad_mask,
-                layer_cache=(
+                tgt_da_label,
+                layer_cache = (
                     self.state["cache"]["layer_{}".format(i)]
-                    if step is not None else None),
-                step=step)
+                    if step is not None else None
+                ),
+                step=step
+            )
 
         output = self.layer_norm(output)
 

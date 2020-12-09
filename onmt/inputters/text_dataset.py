@@ -1,9 +1,6 @@
 # -*- coding: utf-8 -*-
 
-import codecs
-
-import torch
-
+import codecs, torch, json, copy
 from onmt.inputters.dataset_base import DatasetBase, PAD_WORD
 
 
@@ -59,7 +56,7 @@ class TextDataset(DatasetBase):
         return scores
 
     @classmethod
-    def make_examples(cls, sequences, truncate, side):
+    def make_examples(cls, sequences, truncate, side, corpus_type):
         """
         Args:
             cls: used class
@@ -74,6 +71,21 @@ class TextDataset(DatasetBase):
         """
         if isinstance(sequences, str):
             sequences = cls._read_file(sequences)
+
+        if corpus_type=='train':
+            file = './data/itdd_datset_train.txt'
+        if corpus_type=='valid':
+            file = './data/itdd_datset_valid.txt'
+
+        act_labels = []
+        with open(file, 'r') as f:
+            for i, line in enumerate(f):
+                if i%4==3:
+                    act_labels.append(json.loads(line)['label'])
+
+        #tmp = copy.deepcopy(sequences)
+        #assert (len(act_labels) == len(list(tmp))), "Dialogue Act Dataset length is not equal to Dialoue Corpus Dataset length."  # 66332==66332
+
         for i, seq in enumerate(sequences):
             # the implicit assumption here is that data that does not come
             # from a file is already at least semi-tokenized, i.e. split on
@@ -118,11 +130,12 @@ class TextDataset(DatasetBase):
             # TODO: sequenceから非ダミーのDA Labelを取得する
             # MEMO: src-train-tokenized.txt.0.txt, tgt-train-tokenized.txt.0.txt には
             # DAラベルが入っている前提
+            class_label = {u'Q': 2, u'I': 3, u'C': 1, u'D': 0}
             if side == "src":
-                example_dict.update({"src_da_label": ("I", "I", "I")})
+                example_dict.update({"src_da_label": (class_label[act_labels[i][0]], class_label[act_labels[i][1]], class_label[act_labels[i][2]])})
 
             if side == "tgt":
-                example_dict.update({"tgt_da_label": ("I")})
+                example_dict.update({"tgt_da_label": (class_label[act_labels[i][3]])})
 
             yield example_dict
 

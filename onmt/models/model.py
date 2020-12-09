@@ -73,19 +73,21 @@ class KTransformerModel(nn.Module):
         self.decoder = decoder
         self.decoder2 = decoder2
 
-    def forward(self, knl, src, tgt, src_lengths, knl_lengths):
+    def forward(self, knl, src, tgt, src_lengths, knl_lengths, src_da_label=(1, 1, 1), tgt_da_label=(1, )):
         tgt = tgt[:-1]
-        enc_state, his_bank, src_bank, knl_bank, lengths = self.encoder(src, knl, src_lengths, knl_lengths)
+
+        enc_state, his_bank, src_bank, knl_bank, lengths = self.encoder(src, knl, src_lengths, knl_lengths, src_da_label)
+
         self.decoder.init_state(src[100:, :, :], src[100:, :, :], src_bank, enc_state)
-        first_dec_out, first_attns = self.decoder(tgt, src_bank, his_bank,
-                                      memory_lengths=None)
+        first_dec_out, first_attns = self.decoder(tgt, src_bank, his_bank, tgt_da_label, memory_lengths=None)
+        # TODO: check what does self.generator() do.
         # log_probs [tgt_len, batch_size, vocab_size]
         first_log_probs = self.generator(first_dec_out.squeeze(0))
         _, first_dec_words = torch.max(first_log_probs, 2)
         first_dec_words = first_dec_words.unsqueeze(2)
+
         self.decoder2.init_state(first_dec_words, knl[600:, :, :], None, None)
         emb, decode1_bank, decode1_mask = self.encoder.histransformer(first_dec_words, None)
-        second_dec_out, second_attns = self.decoder2(tgt, decode1_bank, knl_bank, memory_lengths=None)
-        
-        return first_dec_out, first_attns, second_dec_out, second_attns
+        second_dec_out, second_attns = self.decoder2(tgt, decode1_bank, knl_bank, tgt_da_label, memory_lengths=None)
 
+        return first_dec_out, first_attns, second_dec_out, second_attns

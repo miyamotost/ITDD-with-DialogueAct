@@ -5,6 +5,8 @@ import torch
 import torch.nn as nn
 
 import onmt
+import onmt.opts as opts
+
 from onmt.encoders.encoder import EncoderBase
 # from onmt.utils.misc import aeq
 from onmt.modules.position_ffn import PositionwiseFeedForward
@@ -54,6 +56,8 @@ class STransformerEncoderLayer(nn.Module):
 
 class ATransformerEncoderLayer(nn.Module):
     """
+    Incremental Transformer
+
     A single layer of the transformer encoder.
 
     Args:
@@ -74,13 +78,16 @@ class ATransformerEncoderLayer(nn.Module):
             heads, d_model, dropout=dropout)
         self.context_attn = onmt.modules.MultiHeadedAttention(
             heads, d_model, dropout=dropout)
-        self.feed_forward = PositionwiseFeedForward(d_model, d_ff, dropout)
+        # 2 layer FFN (dim: 512 -> hidden size -> 512)
+        self.feed_forward = PositionwiseFeedForward(d_model+1, d_ff, dropout)
         self.layer_norm_1 = nn.LayerNorm(d_model, eps=1e-6)
         self.layer_norm_2 = nn.LayerNorm(d_model, eps=1e-6)
         self.layer_norm_3 = nn.LayerNorm(d_model, eps=1e-6)
         self.dropout = nn.Dropout(dropout)
 
-    def forward(self, inputs, src_mask, knl_bank, knl_mask, his_bank, his_mask):
+        self.feed_forward2 = nn.Linear(d_model+1, d_model)
+
+    def forward(self, inputs, src_mask, knl_bank, knl_mask, his_bank, his_mask, src_da_label=1):
         """
         Transformer Encoder Layer definition.
 
@@ -94,27 +101,35 @@ class ATransformerEncoderLayer(nn.Module):
             * outputs `[batch_size x src_len x model_dim]`
         """
         input_norm = self.layer_norm_1(inputs)
-        query, _ = self.self_attn(input_norm, input_norm, input_norm,
-                                  mask=src_mask)
+        query, _ = self.self_attn(input_norm, input_norm, input_norm, mask=src_mask)
         query = self.dropout(query) + inputs
         query_norm = self.layer_norm_2(query)
-        knl_out, _ = self.knowledge_attn(knl_bank, knl_bank, query_norm,
-                                         mask=knl_mask)
+        knl_out, _ = self.knowledge_attn(knl_bank, knl_bank, query_norm, mask=knl_mask)
         knl_out = self.dropout(knl_out) + query
+
         if his_bank is not None:
             his_bank = his_bank.transpose(0, 1).contiguous()
             knl_out_norm = self.layer_norm_3(knl_out)
-
-            out, _ = self.context_attn(his_bank, his_bank, knl_out_norm,
-                                       mask=his_mask)
+            out, _ = self.context_attn(his_bank, his_bank, knl_out_norm, mask=his_mask)
             out = self.dropout(out) + knl_out
-            return self.feed_forward(out)
         else:
-            return self.feed_forward(knl_out)
+            out = knl_out
+
+        da_emb = torch.empty(out.shape[0], out.shape[1], 1, device=out.device) # da_emb.shape = torch.Size([13, 50, 1])
+        for i in range(out.shape[0]):
+            da_emb[i].fill_(src_da_label[i])
+
+        out = torch.cat((out, da_emb), dim=2) # out.shape = torch.Size([13, 50, 513])
+        out = self.feed_forward(out) # dim: 513 -> 513,  out.shape = torch.Size([13, 50, 513])
+        out = self.feed_forward2(out) # dim: 513 -> 512, out.shape = torch.Size([13, 50, 512])
+
+        return out
 
 
 class KNLTransformerEncoder(EncoderBase):
     """
+    Self-Attentive Encoder
+
     The Transformer encoder from "Attention is All You Need".
 
 
@@ -175,6 +190,8 @@ class KNLTransformerEncoder(EncoderBase):
 
 class HTransformerEncoder(EncoderBase):
     """
+    Incremental Transformer Encoder
+
     The Transformer encoder from "Attention is All You Need".
 
 
@@ -215,7 +232,7 @@ class HTransformerEncoder(EncoderBase):
              for _ in range(num_layers)])
         self.layer_norm = nn.LayerNorm(d_model, eps=1e-6)
 
-    def forward(self, src, history_bank=None, knl_bank=None, knl_mask=None, his_mask=None):
+    def forward(self, src, history_bank=None, knl_bank=None, knl_mask=None, his_mask=None, src_da_label=1):
         """ See :obj:`EncoderBase.forward()`"""
 
         emb = self.embeddings(src)
@@ -231,48 +248,54 @@ class HTransformerEncoder(EncoderBase):
 
         # Run the forward pass of every layer of the tranformer.
         for i in range(self.num_layers):
-            out = self.transformer[i](out, src_mask, knl_bank, knl_mask, history_bank, his_mask)
+            out = self.transformer[i](out, src_mask, knl_bank, knl_mask, history_bank, his_mask, src_da_label)
         out = self.layer_norm(out)
 
         return emb, out.transpose(0, 1).contiguous(), src_mask
 
 
 class TransformerEncoder(EncoderBase):
-    def __init__(self, num_layers, d_model, heads, d_ff,
-                 dropout, embeddings):
+    def __init__(self, model_mode, num_layers, d_model, heads, d_ff, dropout, embeddings):
         # KTransformerEncoder 与 HTransformerEncoder暂时共享embedding
         super(TransformerEncoder, self).__init__()
 
+        self.model_mode = model_mode
+
         self.num_layers = num_layers
         self.embeddings = embeddings
-        self.knltransformer = KNLTransformerEncoder(num_layers, d_model, heads,
-                                                    d_ff, dropout, embeddings)
-        self.histransformer = KNLTransformerEncoder(num_layers, d_model, heads,
-                                                    d_ff, dropout, embeddings)
-        self.htransformer = HTransformerEncoder(num_layers, d_model, heads,
-                                                d_ff, dropout, embeddings)
+        self.knltransformer = KNLTransformerEncoder(num_layers, d_model, heads, d_ff, dropout, embeddings)
+        self.histransformer = KNLTransformerEncoder(num_layers, d_model, heads, d_ff, dropout, embeddings)
+        self.htransformer = HTransformerEncoder(num_layers, d_model, heads, d_ff, dropout, embeddings)
 
-    def forward(self, src, knl=None, lengths=None, knl_lengths=None):
-        history = self.history2list(src, knl)
+    def forward(self, src, knl=None, lengths=None, knl_lengths=None, src_da_label=(1, 1, 1)):
+        history = self.history2list(src, knl, src_da_label)
         tgt_knl = knl[600:, :, :]
+        # utterance in k and document in k+1 are passed through Self-Attentive Encoder for Decoder
         emb, knl_bank_tgt, knl_mask = self.knltransformer(tgt_knl, None)
         emb, src_bank, src_mask = self.histransformer(src[100:, :, :], None)
         his_bank = None
         his_mask = None
         for h in history:
+            # document in k-2, k-1, k are passed through Self-Attentive Encoder
+            # then utterance and dialogue act label in k-2, k-1, k and encoded documents
+            # are passed through Incremental Transformer Encoder
             u = h[0]
             k = h[1]
+            da_label = h[2]
             emb, knl_bank, knl_mask = self.knltransformer(k, None)
             knl_bank_input = knl_bank.transpose(0, 1).contiguous()
-            emb, his_bank, his_mask = self.htransformer(u, his_bank, knl_bank_input, knl_mask, his_mask)
+            emb, his_bank, his_mask = self.htransformer(u, his_bank, knl_bank_input, knl_mask, his_mask, da_label)
         return emb, his_bank, src_bank, knl_bank_tgt, lengths
 
     @staticmethod
-    def history2list(src, knl):
+    def history2list(src, knl, src_da_label):
         u1 = src[:50, :, :]
         u2 = src[50:100, :, :]
         u3 = src[100:, :, :]
         k1 = knl[:200, :, :]
         k2 = knl[200:400, :, :]
         k3 = knl[400:600, :, :]
-        return (u1, k1), (u2, k2), (u3, k3)
+        l1 = src_da_label[0]
+        l2 = src_da_label[1]
+        l3 = src_da_label[2]
+        return (u1, k1, l1), (u2, k2, l2), (u3, k3, l3)

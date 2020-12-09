@@ -66,6 +66,7 @@ def build_encoder(opt, embeddings):
     """
     if opt.encoder_type == "transformer":
         encoder = TransformerEncoder(
+            opt.model_mode,
             opt.enc_layers,
             opt.enc_rnn_size,
             opt.heads,
@@ -186,6 +187,9 @@ def build_base_model(model_opt, fields, gpu, checkpoint=None):
         feat_fields = [fields[k]
                        for k in inputters.collect_features(fields, 'src')]
         src_emb = build_embeddings(model_opt, fields["src"], feat_fields)
+        print("[build_base_model in onmt.model_builder.py] fields[\"src\"]: {}".format(fields["src"]))
+        print("[build_base_model in onmt.model_builder.py] feat_fields: {}".format(feat_fields))
+        print("[build_base_model in onmt.model_builder.py] src_emb: {}".format(src_emb))
         encoder = build_encoder(model_opt, src_emb)
     elif model_opt.model_type == "img":
         # why is build_encoder not used here?

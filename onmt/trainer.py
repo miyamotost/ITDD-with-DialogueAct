@@ -15,8 +15,7 @@ import onmt.utils
 from onmt.utils.logging import logger
 
 
-def build_trainer(opt, device_id, model, fields,
-                  optim, data_type, model_saver=None):
+def build_trainer(opt, device_id, model, fields, optim, data_type, model_saver=None):
     """
     Simplify `Trainer` creation based on user `opt`s*
 
@@ -30,10 +29,8 @@ def build_trainer(opt, device_id, model, fields,
         model_saver(:obj:`onmt.models.ModelSaverBase`): the utility object
             used to save the model
     """
-    train_loss = onmt.utils.loss.build_loss_compute(
-        model, fields["tgt"], opt)
-    valid_loss = onmt.utils.loss.build_loss_compute(
-        model, fields["tgt"], opt, train=False)
+    train_loss = onmt.utils.loss.build_loss_compute(model, fields["tgt"], opt)
+    valid_loss = onmt.utils.loss.build_loss_compute(model, fields["tgt"], opt, train=False)
 
     trunc_size = opt.truncated_decoder  # Badly named...
     shard_size = opt.max_generator_batches
@@ -48,7 +45,7 @@ def build_trainer(opt, device_id, model, fields,
     gpu_verbose_level = opt.gpu_verbose_level
 
     report_manager = onmt.utils.build_report_manager(opt)
-    trainer = onmt.Trainer(model, train_loss, valid_loss, optim, trunc_size,
+    trainer = onmt.Trainer(opt.model_mode, model, train_loss, valid_loss, optim, trunc_size,
                            shard_size, data_type, norm_method,
                            grad_accum_count, n_gpu, gpu_rank,
                            gpu_verbose_level, report_manager,
@@ -81,11 +78,12 @@ class Trainer(object):
                 Thus nothing will be saved if this parameter is None
     """
 
-    def __init__(self, model, train_loss, valid_loss, optim,
+    def __init__(self, model_mode, model, train_loss, valid_loss, optim,
                  trunc_size=0, shard_size=32, data_type='text',
                  norm_method="sents", grad_accum_count=1, n_gpu=1, gpu_rank=1,
                  gpu_verbose_level=0, report_manager=None, model_saver=None):
         # Basic attributes.
+        self.model_mode = model_mode
         self.model = model
         self.train_loss = train_loss
         self.valid_loss = valid_loss
@@ -144,6 +142,18 @@ class Trainer(object):
 
             reduce_counter = 0
             for i, batch in enumerate(train_iter):
+                """
+                batch:
+                [torchtext.data.batch.Batch of size 13]
+                	[.src]:('[torch.cuda.LongTensor of size 150x13 (GPU 0)]', '[torch.cuda.LongTensor of size 13 (GPU 0)]')
+                	[.knl]:('[torch.cuda.LongTensor of size 800x13 (GPU 0)]', '[torch.cuda.LongTensor of size 13 (GPU 0)]')
+                	[.src_map]:[torch.cuda.FloatTensor of size 150x13x102 (GPU 0)]
+                	[.alignment]:[torch.cuda.LongTensor of size 40x13 (GPU 0)]
+                	[.tgt]:[torch.cuda.LongTensor of size 40x13 (GPU 0)]
+                	[.indices]:[torch.cuda.LongTensor of size 13 (GPU 0)]
+                	[.src_da_label]:[torch.cuda.LongTensor of size 13x3 (GPU 0)]
+                	[.tgt_da_label]:[torch.cuda.LongTensor of size 13 (GPU 0)]
+                """
                 if self.n_gpu == 0 or (i % self.n_gpu == self.gpu_rank):
                     if self.gpu_verbose_level > 1:
                         logger.info("GpuRank %d: index: %d accum: %d"
@@ -152,8 +162,7 @@ class Trainer(object):
                     true_batchs.append(batch)
 
                     if self.norm_method == "tokens":
-                        num_tokens = batch.tgt[1:].ne(
-                            self.train_loss.padding_idx).sum()
+                        num_tokens = batch.tgt[1:].ne(self.train_loss.padding_idx).sum()
                         normalization += num_tokens.item()
                     else:
                         normalization += batch.batch_size
@@ -236,7 +245,11 @@ class Trainer(object):
             tgt = inputters.make_features(batch, 'tgt')
 
             # F-prop through the model.
-            first_outputs, first_attns, second_outputs, second_attns = self.model(knl, src, tgt, src_lengths, knl_lengths)
+            first_outputs, first_attns, second_outputs, second_attns = self.model(
+                knl, src, tgt, src_lengths, knl_lengths,
+                src_da_label=(batch.src_da_label[:, 0], batch.src_da_label[:, 1], batch.src_da_label[:, 2]),
+                tgt_da_label=(batch.tgt_da_label,)
+            )
 
             # Compute loss.
             #batch_stats1 = self.valid_loss.monolithic_compute_loss(
@@ -253,8 +266,7 @@ class Trainer(object):
 
         return stats
 
-    def _gradient_accumulation(self, true_batchs, normalization, total_stats,
-                               report_stats):
+    def _gradient_accumulation(self, true_batchs, normalization, total_stats, report_stats):
         if self.grad_accum_count > 1:
             self.model.zero_grad()
 
@@ -267,7 +279,9 @@ class Trainer(object):
                 trunc_size = target_size
 
             # dec_state = None
-            src = inputters.make_features(batch, 'src', self.data_type)
+            #print("onmt.trainer.py: {}".format(batch))
+            src = inputters.make_features(batch, 'src', self.data_type, model_mode='default')
+            #print("[onmt.trainer.py] src.shape: {}".format(src.shape))
             if self.data_type == 'text':
                 _, src_lengths = batch.src
                 report_stats.n_src_words += src_lengths.sum().item()
@@ -288,8 +302,13 @@ class Trainer(object):
                 # 2. F-prop all but generator.
                 if self.grad_accum_count == 1:
                     self.model.zero_grad()
+                # TODO: embed dialogue act label
                 first_outputs, first_attns, second_outputs, second_attns = \
-                    self.model(knl, src, tgt, src_lengths, knl_lengths)
+                    self.model(
+                        knl, src, tgt, src_lengths, knl_lengths,
+                        src_da_label=(batch.src_da_label[:, 0], batch.src_da_label[:, 1], batch.src_da_label[:, 2]),
+                        tgt_da_label=(batch.tgt_da_label,)
+                    )
                 # 3. Compute loss in shards for memory efficiency.
                 batch_stats1 = self.train_loss.sharded_compute_loss(
                     batch, first_outputs, first_attns, j,
