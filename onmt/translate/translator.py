@@ -100,6 +100,7 @@ class Translator(object):
         self.verbose = opt.verbose
         self.report_bleu = opt.report_bleu
         self.report_rouge = opt.report_rouge
+        self.report_distinct = opt.report_distinct
         self.fast = opt.fast
 
         self.copy_attn = model_opt.copy_attn
@@ -275,6 +276,12 @@ class Translator(object):
                         self.logger.info(msg)
                     else:
                         print(msg)
+                if self.report_distinct:
+                    msg = self._report_distinct(tgt)
+                    if self.logger:
+                        self.logger.info(msg)
+                    else:
+                        print(msg)
 
         if self.dump_beam:
             import json
@@ -318,8 +325,11 @@ class Translator(object):
             _, knl_lengths = batch.knl
         elif data_type == 'audio':
             src_lengths = batch.src_lengths
+        # print("[onmt.translate.translator.py] batch.src_da_label[:, 0].shape: {}".format(batch.src_da_label[:, 0].shape))
         enc_states, his_memory_bank, src_memory_bank, knl_memory_bank, src_lengths = self.model.encoder(
-            src, knl, src_lengths, knl_lengths)
+            src, knl, src_lengths, knl_lengths,
+            src_da_label=(batch.src_da_label[:, 0], batch.src_da_label[:, 1], batch.src_da_label[:, 2])
+        )
         if src_lengths is None:
             assert not isinstance(src_memory_bank, tuple), \
                 'Ensemble decoding only supported for text data'
@@ -354,7 +364,7 @@ class Translator(object):
         # in case of inference tgt_len = 1, batch = beam times batch_size
         # in case of Gold Scoring tgt_len = actual length, batch = 1 batch
         dec_out, dec_attn = self.model.decoder(
-            decoder_in, src_memory_bank, knl_memory_bank, memory_lengths=memory_lengths, step=step
+            decoder_in, src_memory_bank, knl_memory_bank, (batch.tgt_da_label,), memory_lengths=memory_lengths, step=step
         )
 
         # Generator forward.
@@ -676,6 +686,15 @@ class Translator(object):
         else:
             his_memory_bank = tile(his_memory_bank, beam_size, dim=1)
             mb_device = his_memory_bank.device
+
+        # TODO: operation test
+        if isinstance(batch.tgt_da_label, tuple):
+            batch.tgt_da_label = tuple(tile(x, beam_size, dim=1) for x in batch.tgt_da_label)
+            mb_device = batch.tgt_da_label[0].device
+        else:
+            batch.tgt_da_label = tile(batch.tgt_da_label, beam_size, dim=0)
+            mb_device = batch.tgt_da_label.device
+
         memory_lengths = tile(src_lengths, beam_size)
         # (3) run the first decoder to generate sentences, using beam search.
         for i in range(self.max_length):
@@ -690,7 +709,7 @@ class Translator(object):
 
             # (b) Decode and forward
             dec_out, dec_attn = self.model.decoder(
-                inp, src_memory_bank, his_memory_bank, memory_lengths=memory_lengths, step=i
+                inp, src_memory_bank, his_memory_bank, (batch.tgt_da_label,), memory_lengths=memory_lengths, step=i
             )
             beam_attn = dec_attn["std"]
             out = self.model.generator(dec_out.squeeze(0))
@@ -744,7 +763,7 @@ class Translator(object):
 
             # (b) Decode and forward
             dec_out, dec_attn = self.model.decoder2(
-                inp, decode1_memory_bank, knl_memory_bank, memory_lengths=memory_lengths, step=i
+                inp, decode1_memory_bank, knl_memory_bank, (batch.tgt_da_label,), memory_lengths=memory_lengths, step=i
             )
             beam_attn = dec_attn["std"]
             out = self.model.generator(dec_out.squeeze(0))
@@ -781,15 +800,18 @@ class Translator(object):
     def _score_target(self, batch, his_memory_bank, src_memory_bank, knl_memory_bank, knl, src_lengths, data, src_map):
         tgt_in = inputters.make_features(batch, 'tgt')[:-1]
 
-        first_dec_out, first_attns = self.model.decoder(tgt_in, src_memory_bank, his_memory_bank,
-                                                        memory_lengths=None)
+        first_dec_out, first_attns = self.model.decoder(
+            tgt_in, src_memory_bank, his_memory_bank, (batch.tgt_da_label,), memory_lengths=None
+        )
         # log_probs [tgt_len, batch_size, vocab_size]
         first_log_probs = self.model.generator(first_dec_out.squeeze(0))
         _, first_dec_words = torch.max(first_log_probs, 2)
         first_dec_words = first_dec_words.unsqueeze(2)
         self.model.decoder2.init_state(first_dec_words, knl[600:, :, :], None, None)
         emb, decode1_bank, decode1_mask = self.model.encoder.histransformer(first_dec_words, None)
-        second_dec_out, attn = self.model.decoder2(tgt_in, decode1_bank, knl_memory_bank, memory_lengths=None)
+        second_dec_out, attn = self.model.decoder2(
+            tgt_in, decode1_bank, knl_memory_bank, (batch.tgt_da_label,), memory_lengths=None
+        )
         log_probs = self.model.generator(second_dec_out.squeeze(0))
         #first_dec_out, attn = self.model.decoder(tgt_in, his_memory_bank, src_memory_bank,
         #                                                memory_lengths=None)
@@ -835,4 +857,14 @@ class Translator(object):
             "python %s/tools/test_rouge.py -r %s -c STDIN" % (path, tgt_path),
             shell=True, stdin=self.out_file
         ).decode("utf-8").strip()
+        return msg
+
+    def _report_distinct(self, tgt_path):
+        from tools.distinct_n.metrics import distinct_n_sentence_level, distinct_n_corpus_level
+        sentences = []
+        with open(tgt_path, 'r') as f:
+            sentences = [line for line in f]
+            print("[onmt.translate.translator.py]  sentences[0]: {}".format(sentences[0]))
+        res = distinct_n_corpus_level(sentences, 2)
+        msg = '>> Distinct (distinct_2_corpus = {})'.format(res)
         return msg
