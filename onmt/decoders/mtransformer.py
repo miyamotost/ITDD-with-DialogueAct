@@ -24,11 +24,12 @@ class TransformerDecoderLayer(nn.Module):
       self_attn_type (string): type of self-attention scaled-dot, average
     """
 
-    def __init__(self, d_model, heads, d_ff, dropout,
+    def __init__(self, model_mode, d_model, heads, d_ff, dropout,
                  self_attn_type="scaled-dot"):
         super(TransformerDecoderLayer, self).__init__()
 
         self.self_attn_type = self_attn_type
+        self.model_mode = model_mode
 
         if self_attn_type == "scaled-dot":
             self.self_attn = onmt.modules.MultiHeadedAttention(
@@ -41,13 +42,18 @@ class TransformerDecoderLayer(nn.Module):
             heads, d_model, dropout=dropout)
         self.history_attn = onmt.modules.MultiHeadedAttention(
             heads, d_model, dropout=dropout)
-        self.feed_forward = PositionwiseFeedForward(d_model+1, d_ff, dropout)
+
+        if self.model_mode in ['top_act', 'all_acts']:
+            self.feed_forward = PositionwiseFeedForward(d_model+1, d_ff, dropout)
+            self.feed_forward2 = nn.Linear(d_model+1, d_model)
+        elif self.model_mode in ['default']:
+            self.feed_forward = PositionwiseFeedForward(d_model, d_ff, dropout)
+
         self.layer_norm_1 = nn.LayerNorm(d_model, eps=1e-6)
         self.layer_norm_2 = nn.LayerNorm(d_model, eps=1e-6)
         self.layer_norm_3 = nn.LayerNorm(d_model, eps=1e-6)
         self.dropout = dropout
         self.drop = nn.Dropout(dropout)
-        self.feed_forward2 = nn.Linear(d_model+1, d_model)
         mask = self._get_attn_subsequent_mask(MAX_SIZE)
         # Register self.mask as a buffer in TransformerDecoderLayer, so
         # it gets TransformerDecoderLayer's cuda behavior automatically.
@@ -103,13 +109,15 @@ class TransformerDecoderLayer(nn.Module):
 
         out = self.drop(out) + knl_out
 
-        da_emb = torch.empty(out.shape[0], out.shape[1], 1, device=out.device)
-        for i in range(out.shape[0]):
-            da_emb[i].fill_(tgt_da_label[0][i])
-
-        out = torch.cat((out, da_emb), dim=2) # out.shape = torch.Size([13, x, 513])
-        out = self.feed_forward(out)          # out.shape = torch.Size([13, x, 513])
-        out = self.feed_forward2(out)         # out.shape = torch.Size([13, x, 512])
+        if self.model_mode in ['top_act', 'all_acts']:
+            da_emb = torch.empty(out.shape[0], out.shape[1], 1, device=out.device)
+            for i in range(out.shape[0]):
+                da_emb[i].fill_(tgt_da_label[0][i])
+            out = torch.cat((out, da_emb), dim=2) # out.shape = torch.Size([13, x, 513])
+            out = self.feed_forward(out)          # out.shape = torch.Size([13, x, 513])
+            out = self.feed_forward2(out)         # out.shape = torch.Size([13, x, 512])
+        elif self.model_mode in ['default']:
+            out = self.feed_forward(out)
 
         return out, attn
 
@@ -161,9 +169,10 @@ class TransformerDecoder(nn.Module):
        attn_type (str): if using a seperate copy attention
     """
 
-    def __init__(self, num_layers, d_model, heads, d_ff, attn_type,
-                 copy_attn, self_attn_type, dropout, embeddings):
+    def __init__(self, model_mode, num_layers, d_model, heads, d_ff, attn_type, copy_attn, self_attn_type, dropout, embeddings):
         super(TransformerDecoder, self).__init__()
+
+        self.model_mode = model_mode
 
         # Basic attributes.
         self.decoder_type = 'transformer'
@@ -176,7 +185,7 @@ class TransformerDecoder(nn.Module):
 
         # Build TransformerDecoder.
         self.transformer_layers = nn.ModuleList(
-            [TransformerDecoderLayer(d_model, heads, d_ff, dropout,
+            [TransformerDecoderLayer(model_mode, d_model, heads, d_ff, dropout,
              self_attn_type=self_attn_type)
              for _ in range(num_layers)])
 

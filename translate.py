@@ -27,10 +27,15 @@ if __name__ == "__main__":
         description='translate.py',
         config_file_parser_class=configargparse.YAMLConfigFileParser,
         formatter_class=configargparse.ArgumentDefaultsHelpFormatter)
+
+    opts.general_opts(parser)
     opts.config_opts(parser)
     opts.add_md_help_argument(parser)
     opts.translate_opts(parser)
 
     opt = parser.parse_args()
     logger = init_logger(opt.log_file)
+
+    print("[translate.py] opt.model_mode: {}".format(opt.model_mode))
+
     main(opt)

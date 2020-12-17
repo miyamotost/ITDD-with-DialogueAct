@@ -105,6 +105,7 @@ def build_decoder(opt, embeddings):
     """
     if opt.decoder_type == "transformer":
         decoder = TransformerDecoder(
+            opt.model_mode,
             opt.dec_layers,
             opt.dec_rnn_size,
             opt.heads,
@@ -153,6 +154,9 @@ def load_test_model(opt, dummy_opt, model_path=None):
         checkpoint['vocab'], data_type=opt.data_type)
 
     model_opt = checkpoint['opt']
+
+    if not hasattr(model_opt, 'model_mode'):
+        model_opt.model_mode = "default"
 
     for arg in dummy_opt:
         if arg not in model_opt:
