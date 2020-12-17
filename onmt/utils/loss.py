@@ -250,6 +250,11 @@ class NMTLossCompute(LossComputeBase):
 
         return loss, stats
 
+class UtteranceAndDaLossCompute(LossComputeBase):
+    """
+    Target Utterance And Dialogue Act Label Loss Computation.
+    """
+
 
 def filter_shard_state(state, shard_size=None):
     for k, v in state.items():
