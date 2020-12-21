@@ -82,6 +82,8 @@ class Translator(object):
         self.gpu = opt.gpu
         self.cuda = opt.gpu > -1
 
+        self.output = opt.output
+
         self.n_best = opt.n_best
         self.max_length = opt.max_length
         self.beam_size = opt.beam_size
@@ -201,11 +203,14 @@ class Translator(object):
         all_scores = []
         all_predictions = []
 
-        for batch in data_iter:
+        for i, batch in enumerate(data_iter):
             batch_data = self.translate_batch(
                 batch, data, attn_debug, fast=self.fast
             )
             translations = builder.from_batch(batch_data)
+
+            if i%5==0:
+                print("Translation Step: {}".format(i))
 
             for trans in translations:
                 all_scores += [trans.pred_scores[:self.n_best]]
@@ -861,10 +866,26 @@ class Translator(object):
 
     def _report_distinct(self, tgt_path):
         from tools.distinct_n.metrics import distinct_n_sentence_level, distinct_n_corpus_level
+        # gold
         sentences = []
         with open(tgt_path, 'r') as f:
             sentences = [line for line in f]
             print("[onmt.translate.translator.py]  sentences[0]: {}".format(sentences[0]))
-        res = distinct_n_corpus_level(sentences, 2)
-        msg = '>> Distinct (distinct_2_corpus = {})'.format(res)
+        res_gold1 = distinct_n_corpus_level(sentences, 1)
+        res_gold2 = distinct_n_corpus_level(sentences, 2)
+        res_gold3 = distinct_n_corpus_level(sentences, 3)
+        # pred
+        sentences = []
+        with open(self.output, 'r') as f:
+            sentences = [line for line in f]
+            print("[onmt.translate.translator.py]  sentences[0]: {}".format(sentences[0]))
+        res_pred1 = distinct_n_corpus_level(sentences, 1)
+        res_pred2 = distinct_n_corpus_level(sentences, 2)
+        # TODO: fix StopIteration error
+        # res_pred3 = distinct_n_corpus_level(sentences, 3)
+        res_pred3 = 0
+        # output
+        msg = '>> Distinct (gold: 1/2/3 = {}/{}/{}, pred: 1/2/3 = {}/{}/{})'.format(
+            res_gold1, res_gold2, res_gold3, res_pred1, res_pred2, res_pred3
+        )
         return msg
