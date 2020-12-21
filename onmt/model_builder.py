@@ -155,12 +155,14 @@ def load_test_model(opt, dummy_opt, model_path=None):
 
     model_opt = checkpoint['opt']
 
-    if not hasattr(model_opt, 'model_mode'):
-        model_opt.model_mode = "default"
-
     for arg in dummy_opt:
         if arg not in model_opt:
             model_opt.__dict__[arg] = dummy_opt[arg]
+
+    #if not hasattr(model_opt, 'model_mode'):
+    model_opt.model_mode = opt.model_mode
+    print("[onmt.model_builder.py] model_opt.model_mode: {}".format(opt.model_mode))
+
     model = build_base_model(model_opt, fields, use_gpu(opt), checkpoint)
     model.eval()
     model.generator.eval()
@@ -191,9 +193,10 @@ def build_base_model(model_opt, fields, gpu, checkpoint=None):
         feat_fields = [fields[k]
                        for k in inputters.collect_features(fields, 'src')]
         src_emb = build_embeddings(model_opt, fields["src"], feat_fields)
-        print("[build_base_model in onmt.model_builder.py] fields[\"src\"]: {}".format(fields["src"]))
-        print("[build_base_model in onmt.model_builder.py] feat_fields: {}".format(feat_fields))
-        print("[build_base_model in onmt.model_builder.py] src_emb: {}".format(src_emb))
+        #print("[build_base_model in onmt.model_builder.py] fields[\"src\"]: {}".format(fields["src"]))
+        #print("[build_base_model in onmt.model_builder.py] feat_fields: {}".format(feat_fields))
+        #print("[build_base_model in onmt.model_builder.py] src_emb: {}".format(src_emb))
+        print("[onmt.model_builder.py] model_opt.model_mode: {}".format(model_opt.model_mode))
         encoder = build_encoder(model_opt, src_emb)
     elif model_opt.model_type == "img":
         # why is build_encoder not used here?
