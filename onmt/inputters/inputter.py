@@ -72,7 +72,7 @@ def make_audio(data, vocab):
     return sounds
 
 
-def get_fields(src_data_type, n_src_features, n_tgt_features, n_knl_features):
+def get_fields(opt, src_data_type, n_src_features, n_tgt_features, n_knl_features):
     """
     Args:
         src_data_type: type of the source input. Options are [text|img|audio].
@@ -131,10 +131,11 @@ def get_fields(src_data_type, n_src_features, n_tgt_features, n_knl_features):
     fields["indices"] = Field(
         use_vocab=False, dtype=torch.long, sequential=False)
 
-    # using Dialogue Act Label
-    if src_data_type == 'text':
-        fields["src_da_label"] = Field(sequential=False, use_vocab=False)
-        fields["tgt_da_label"] = Field(sequential=False, use_vocab=False)
+    if opt.model_mode in ['top_act', 'all_acts']:
+        # using Dialogue Act Label
+        if src_data_type == 'text':
+            fields["src_da_label"] = Field(sequential=False, use_vocab=False)
+            fields["tgt_da_label"] = Field(sequential=False, use_vocab=False)
 
     return fields
 
@@ -236,7 +237,7 @@ def build_dataset(fields, data_type, src, knl,
                   dynamic_dict=False, sample_rate=0,
                   window_size=0, window_stride=0, window=None,
                   normalize_audio=True, use_filter_pred=True,
-                  image_channel_size=3, corpus_type='train'):
+                  image_channel_size=3, corpus_type='train', model_mode='default'):
     """
     src: path to corpus file or iterator over source data
     tgt: path to corpus file, iterator over target data, or None
@@ -250,10 +251,10 @@ def build_dataset(fields, data_type, src, knl,
         'it is not possible to use dynamic_dict with non-text input'
     if data_type == 'text':
         src_examples_iter = TextDataset.make_examples(
-            src, src_seq_length_trunc, "src", corpus_type
+            src, src_seq_length_trunc, "src", corpus_type, model_mode
         )
         knl_examples_iter = TextDataset.make_examples(
-            knl, knl_seq_length_trunc, "knl", corpus_type
+            knl, knl_seq_length_trunc, "knl", corpus_type, model_mode
         )
     elif data_type == 'img':
         # there is a truncate argument as well, but it was never set to
@@ -271,7 +272,7 @@ def build_dataset(fields, data_type, src, knl,
         tgt_examples_iter = None
     else:
         tgt_examples_iter = TextDataset.make_examples(
-            tgt, tgt_seq_length_trunc, "tgt", corpus_type)
+            tgt, tgt_seq_length_trunc, "tgt", corpus_type, model_mode)
 
     # the second conjunct means nothing will be filtered at translation time
     # if there is no target data
@@ -284,12 +285,14 @@ def build_dataset(fields, data_type, src, knl,
         filter_pred = None
 
     dataset_cls = dataset_classes[data_type]
-    print("[onmt.inputters.inputter.py] dataset_cls:{}".format(dataset_cls))
     dataset = dataset_cls(
         fields, src_examples_iter, tgt_examples_iter, knl_examples_iter,
         dynamic_dict=dynamic_dict, filter_pred=filter_pred
     )
+
+    print("[onmt.inputters.inputter.py] dataset_cls:{}".format(dataset_cls))
     print("[onmt.inputters.inputter.py] dataset:{}".format(dataset))
+
     return dataset
 
 

@@ -56,7 +56,7 @@ class TextDataset(DatasetBase):
         return scores
 
     @classmethod
-    def make_examples(cls, sequences, truncate, side, corpus_type):
+    def make_examples(cls, sequences, truncate, side, corpus_type, model_mode):
         """
         Args:
             cls: used class
@@ -72,16 +72,24 @@ class TextDataset(DatasetBase):
         if isinstance(sequences, str):
             sequences = cls._read_file(sequences)
 
-        if corpus_type=='train':
-            file = './data/itdd_datset_train.txt'
-        if corpus_type=='valid':
-            file = './data/itdd_datset_valid.txt'
+        if model_mode in ['top_act', 'all_acts']:
+            if side != "knl":
+                # load corpus labeled DA
+                if corpus_type=='train':
+                    file = './data/itdd_datset_train.txt'
+                if corpus_type=='valid':
+                    file = './data/itdd_datset_valid.txt'
+                class_label = {u'Q': 2, u'I': 3, u'C': 1, u'D': 0}
+                act_labels = []
+                if model_mode == 'top_act':
+                    key = 'label'
+                elif model_mode == 'all_acts':
+                    key = 'label_all'
+                with open(file, 'r') as f:
+                    for i, line in enumerate(f):
+                        if i%4==3:
+                            act_labels.append(json.loads(line)[key])
 
-        act_labels = []
-        with open(file, 'r') as f:
-            for i, line in enumerate(f):
-                if i%4==3:
-                    act_labels.append(json.loads(line)['label'])
 
         #tmp = copy.deepcopy(sequences)
         #assert (len(act_labels) == len(list(tmp))), "Dialogue Act Dataset length is not equal to Dialoue Corpus Dataset length."  # 66332==66332
@@ -126,16 +134,24 @@ class TextDataset(DatasetBase):
                 example_dict.update((prefix + str(j), f)
                                     for j, f in enumerate(feats))
 
-            # add Dialogue Act Label
-            # TODO: sequenceから非ダミーのDA Labelを取得する
-            # MEMO: src-train-tokenized.txt.0.txt, tgt-train-tokenized.txt.0.txt には
-            # DAラベルが入っている前提
-            class_label = {u'Q': 2, u'I': 3, u'C': 1, u'D': 0}
-            if side == "src":
-                example_dict.update({"src_da_label": (class_label[act_labels[i][0]], class_label[act_labels[i][1]], class_label[act_labels[i][2]])})
-
-            if side == "tgt":
-                example_dict.update({"tgt_da_label": (class_label[act_labels[i][3]])})
+            if model_mode in ['top_act', 'all_acts']:
+                # add Dialogue Act Label to dataset(example)
+                # NOTE: src-train-tokenized.txt.0.txt, tgt-train-tokenized.txt.0.txt には
+                # DAラベルが入っている前提
+                if side != "knl":
+                    if i==0:
+                        print("[onmt.inputters.text_dataset.py i==0] side: {}, model_mode: {}".format(side, model_mode))
+                        print("[onmt.inputters.text_dataset.py i==0] side: {}, act_labels[i]: {}".format(side, act_labels[i]))
+                if model_mode == 'top_act':
+                    if side == "src":
+                        example_dict.update({"src_da_label": (class_label[act_labels[i][0]], class_label[act_labels[i][1]], class_label[act_labels[i][2]])})
+                    if side == "tgt":
+                        example_dict.update({"tgt_da_label": (class_label[act_labels[i][3]])})
+                elif model_mode == 'all_acts':
+                    if side == "src":
+                        example_dict.update({"src_da_label": (act_labels[i][0], act_labels[i][1], act_labels[i][2])})
+                    if side == "tgt":
+                        example_dict.update({"tgt_da_label": (act_labels[i][3], )})
 
             yield example_dict
 

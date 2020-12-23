@@ -34,6 +34,7 @@ def parse_args():
         config_file_parser_class=configargparse.YAMLConfigFileParser,
         formatter_class=configargparse.ArgumentDefaultsHelpFormatter)
 
+    opts.general_opts(parser)
     opts.config_opts(parser)
     opts.add_md_help_argument(parser)
     opts.preprocess_opts(parser)
@@ -98,7 +99,6 @@ def build_save_dataset(corpus_type, fields, opt):
 
     for i, (knl_shard, src_shard, tgt_shard) in enumerate(shard_pairs):
         logger.info("Building shard %d." % i)
-        # TODO: src, knl, tgtにDAラベルを埋め込む
         dataset = inputters.build_dataset(
             fields, opt.data_type,
             src=src_shard,
@@ -118,7 +118,8 @@ def build_save_dataset(corpus_type, fields, opt):
             window=opt.window,
             image_channel_size=opt.image_channel_size,
             use_filter_pred=corpus_type == 'train' or opt.filter_valid,
-            corpus_type=corpus_type
+            corpus_type=corpus_type,
+            model_mode=opt.model_mode
         )
 
         data_path = "{:s}.{:s}.{:d}.pt".format(opt.save_data, corpus_type, i)
@@ -165,6 +166,7 @@ def count_features(path):
 
 def main():
     opt = parse_args()
+    print("[preprocess.py] opt.model_mode: {}".format(opt.model_mode))
 
     assert opt.max_shard_size == 0, \
         "-max_shard_size is deprecated. Please use \
@@ -192,7 +194,7 @@ def main():
     logger.info(" * number of target features: %d." % tgt_nfeats)
 
     logger.info("Building `Fields` object...")
-    fields = inputters.get_fields(opt.data_type, src_nfeats, tgt_nfeats, knl_nfeats)
+    fields = inputters.get_fields(opt, opt.data_type, src_nfeats, tgt_nfeats, knl_nfeats)
     # fields = inputters.get_fields(opt.data_type, 1, 1, knl_nfeats)
     # {'src', 'src_feat_0', 'knl', 'src_map', 'alignment', 'tgt', 'tgt_feat_0', 'indices'}
     # {'src' 'knl', 'src_map', 'alignment', 'tgt', 'indices', 'src_da_label', 'tgt_da_label'}
