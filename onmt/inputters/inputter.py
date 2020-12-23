@@ -72,7 +72,7 @@ def make_audio(data, vocab):
     return sounds
 
 
-def get_fields(opt, src_data_type, n_src_features, n_tgt_features, n_knl_features):
+def get_fields(src_data_type, n_src_features, n_tgt_features, n_knl_features):
     """
     Args:
         src_data_type: type of the source input. Options are [text|img|audio].
@@ -131,11 +131,11 @@ def get_fields(opt, src_data_type, n_src_features, n_tgt_features, n_knl_feature
     fields["indices"] = Field(
         use_vocab=False, dtype=torch.long, sequential=False)
 
-    if opt.model_mode in ['top_act', 'all_acts']:
-        # using Dialogue Act Label
-        if src_data_type == 'text':
-            fields["src_da_label"] = Field(sequential=False, use_vocab=False)
-            fields["tgt_da_label"] = Field(sequential=False, use_vocab=False)
+    # using Dialogue Act Label
+    # TODO: apply model_mode (accept as argument)
+    if src_data_type == 'text':
+        fields["src_da_label"] = Field(sequential=False, use_vocab=False)
+        fields["tgt_da_label"] = Field(sequential=False, use_vocab=False)
 
     return fields
 

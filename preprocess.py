@@ -194,7 +194,7 @@ def main():
     logger.info(" * number of target features: %d." % tgt_nfeats)
 
     logger.info("Building `Fields` object...")
-    fields = inputters.get_fields(opt, opt.data_type, src_nfeats, tgt_nfeats, knl_nfeats)
+    fields = inputters.get_fields(opt.data_type, src_nfeats, tgt_nfeats, knl_nfeats)
     # fields = inputters.get_fields(opt.data_type, 1, 1, knl_nfeats)
     # {'src', 'src_feat_0', 'knl', 'src_map', 'alignment', 'tgt', 'tgt_feat_0', 'indices'}
     # {'src' 'knl', 'src_map', 'alignment', 'tgt', 'indices', 'src_da_label', 'tgt_da_label'}
