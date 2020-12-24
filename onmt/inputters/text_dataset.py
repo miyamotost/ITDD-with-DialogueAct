@@ -149,9 +149,15 @@ class TextDataset(DatasetBase):
                         example_dict.update({"tgt_da_label": (class_label[act_labels[i][3]])})
                 elif model_mode == 'all_acts':
                     if side == "src":
-                        example_dict.update({"src_da_label": (act_labels[i][0], act_labels[i][1], act_labels[i][2])})
+                        example_dict.update({"src_da_label": (
+                            act_labels[i][0]["I"], act_labels[i][0]["Q"], act_labels[i][0]["D"], act_labels[i][0]["C"],
+                            act_labels[i][1]["I"], act_labels[i][1]["Q"], act_labels[i][1]["D"], act_labels[i][1]["C"],
+                            act_labels[i][2]["I"], act_labels[i][2]["Q"], act_labels[i][2]["D"], act_labels[i][2]["C"]
+                        )})
                     if side == "tgt":
-                        example_dict.update({"tgt_da_label": (act_labels[i][3], )})
+                        example_dict.update({"tgt_da_label": (
+                            act_labels[i][3]["I"], act_labels[i][3]["Q"], act_labels[i][3]["D"], act_labels[i][3]["C"]
+                        )})
 
             yield example_dict
 
