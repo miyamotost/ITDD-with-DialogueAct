@@ -110,8 +110,8 @@ def main(opt, device_id):
     # Peek the first dataset to determine the data_type.
     # (All datasets have the same data_type).
     first_dataset = next(lazily_load_dataset("train", opt))
-    print("[onmt.train_single.py] first_dataset.examples[0]: {}".format(first_dataset.examples[0]))
-    print("[onmt.train_single.py] first_dataset.examples[0].src[:10]: {}".format(first_dataset.examples[0].src[:10]))
+    # print("[onmt.train_single.py] first_dataset.examples[0]: {}".format(first_dataset.examples[0]))
+    # print("[onmt.train_single.py] first_dataset.examples[0].src[:10]: {}".format(first_dataset.examples[0].src[:10]))
     print("[onmt.train_single.py] first_dataset.examples[0].src_da_label: {}".format(first_dataset.examples[0].src_da_label))
     print("[onmt.train_single.py] first_dataset.examples[0].__dict__.keys(): {}".format(first_dataset.examples[0].__dict__.keys()))
     data_type = first_dataset.data_type
