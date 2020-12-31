@@ -43,10 +43,13 @@ class TransformerDecoderLayer(nn.Module):
         self.history_attn = onmt.modules.MultiHeadedAttention(
             heads, d_model, dropout=dropout)
 
-        if self.model_mode in ['top_act', 'all_acts']:
+        if self.model_mode == 'top_act':
             self.feed_forward = PositionwiseFeedForward(d_model+1, d_ff, dropout)
             self.feed_forward2 = nn.Linear(d_model+1, d_model)
-        elif self.model_mode in ['default']:
+        elif self.model_mode == 'all_acts':
+            self.feed_forward = PositionwiseFeedForward(d_model+4, d_ff, dropout)
+            self.feed_forward2 = nn.Linear(d_model+4, d_model)
+        else:
             self.feed_forward = PositionwiseFeedForward(d_model, d_ff, dropout)
 
         self.layer_norm_1 = nn.LayerNorm(d_model, eps=1e-6)
@@ -59,8 +62,7 @@ class TransformerDecoderLayer(nn.Module):
         # it gets TransformerDecoderLayer's cuda behavior automatically.
         self.register_buffer('mask', mask)
 
-    def forward(self, inputs, src_bank, knl_bank, src_pad_mask, knl_pad_mask, tgt_pad_mask,
-                tgt_da_label, layer_cache=None, step=None):
+    def forward(self, inputs, src_bank, knl_bank, src_pad_mask, knl_pad_mask, tgt_pad_mask, tgt_da_label, layer_cache=None, step=None):
         """
         Args:
             inputs (`FloatTensor`): `[batch_size x 1 x model_dim]`
@@ -77,9 +79,7 @@ class TransformerDecoderLayer(nn.Module):
         """
         dec_mask = None
         if step is None:
-            dec_mask = torch.gt(tgt_pad_mask +
-                                self.mask[:, :tgt_pad_mask.size(-1),
-                                          :tgt_pad_mask.size(-1)], 0)
+            dec_mask = torch.gt(tgt_pad_mask + self.mask[:, :tgt_pad_mask.size(-1), :tgt_pad_mask.size(-1)], 0)
 
         input_norm = self.layer_norm_1(inputs)
 
@@ -110,9 +110,17 @@ class TransformerDecoderLayer(nn.Module):
         out = self.drop(out) + knl_out
 
         if self.model_mode in ['top_act', 'all_acts']:
-            da_emb = torch.empty(out.shape[0], out.shape[1], 1, device=out.device)
-            for i in range(out.shape[0]):
-                da_emb[i].fill_(tgt_da_label[0][i])
+            if self.model_mode == 'top_act':
+                da_emb = torch.empty(out.shape[0], out.shape[1], 1, device=out.device)
+                for i in range(out.shape[0]):
+                    da_emb[i].fill_(tgt_da_label[0][i])
+            elif self.model_mode == 'all_acts':
+                da_emb = torch.empty(out.shape[0], out.shape[1], 4, device=out.device) # da_emb.shape = torch.Size([13, 50, 4])
+                for i in range(out.shape[0]):
+                    da_emb[i, :, 0].fill_(tgt_da_label[0][i][0])
+                    da_emb[i, :, 1].fill_(tgt_da_label[0][i][1])
+                    da_emb[i, :, 2].fill_(tgt_da_label[0][i][2])
+                    da_emb[i, :, 3].fill_(tgt_da_label[0][i][3])
             out = torch.cat((out, da_emb), dim=2) # out.shape = torch.Size([13, x, 513])
             out = self.feed_forward(out)          # out.shape = torch.Size([13, x, 513])
             out = self.feed_forward2(out)         # out.shape = torch.Size([13, x, 512])

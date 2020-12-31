@@ -179,9 +179,7 @@ class Trainer(object):
                                                 .all_gather_list
                                                 (normalization))
 
-                        self._gradient_accumulation(
-                            true_batchs, normalization, total_stats,
-                            report_stats)
+                        self._gradient_accumulation(true_batchs, normalization, total_stats, report_stats)
 
                         report_stats = self._maybe_report_training(
                             step, train_steps,
@@ -245,11 +243,23 @@ class Trainer(object):
             tgt = inputters.make_features(batch, 'tgt')
 
             # F-prop through the model.
-            first_outputs, first_attns, second_outputs, second_attns = self.model(
-                knl, src, tgt, src_lengths, knl_lengths,
-                src_da_label=(batch.src_da_label[:, 0], batch.src_da_label[:, 1], batch.src_da_label[:, 2]),
-                tgt_da_label=(batch.tgt_da_label,)
-            )
+            # TODO: apply to all_acts
+            if self.model_mode in ['default', 'top_act']:
+                first_outputs, first_attns, second_outputs, second_attns = self.model(
+                    knl, src, tgt, src_lengths, knl_lengths,
+                    src_da_label=(batch.src_da_label[:, 0], batch.src_da_label[:, 1], batch.src_da_label[:, 2]),
+                    tgt_da_label=(batch.tgt_da_label,)
+                )
+            elif self.model_mode in ['all_acts']:
+                first_outputs, first_attns, second_outputs, second_attns = self.model(
+                    knl, src, tgt, src_lengths, knl_lengths,
+                    src_da_label=(
+                        batch.src_da_label[:, 0], batch.src_da_label[:, 1], batch.src_da_label[:, 2], batch.src_da_label[:, 3],
+                        batch.src_da_label[:, 4], batch.src_da_label[:, 5], batch.src_da_label[:, 6], batch.src_da_label[:, 7],
+                        batch.src_da_label[:, 8], batch.src_da_label[:, 9], batch.src_da_label[:, 10], batch.src_da_label[:, 11]
+                    ),
+                    tgt_da_label=(batch.tgt_da_label,)
+                )
 
             # Compute loss.
             #batch_stats1 = self.valid_loss.monolithic_compute_loss(
@@ -303,12 +313,24 @@ class Trainer(object):
                 if self.grad_accum_count == 1:
                     self.model.zero_grad()
                 # TODO: embed dialogue act label
-                first_outputs, first_attns, second_outputs, second_attns = \
-                    self.model(
-                        knl, src, tgt, src_lengths, knl_lengths,
-                        src_da_label=(batch.src_da_label[:, 0], batch.src_da_label[:, 1], batch.src_da_label[:, 2]),
-                        tgt_da_label=(batch.tgt_da_label,)
-                    )
+                if self.model_mode in ['default', 'top_act']:
+                    first_outputs, first_attns, second_outputs, second_attns = \
+                        self.model(
+                            knl, src, tgt, src_lengths, knl_lengths,
+                            src_da_label=(batch.src_da_label[:, 0], batch.src_da_label[:, 1], batch.src_da_label[:, 2]),
+                            tgt_da_label=(batch.tgt_da_label,)
+                        )
+                elif self.model_mode in ['all_acts']:
+                    first_outputs, first_attns, second_outputs, second_attns = \
+                        self.model(
+                            knl, src, tgt, src_lengths, knl_lengths,
+                            src_da_label=(
+                                batch.src_da_label[:, 0], batch.src_da_label[:, 1], batch.src_da_label[:, 2], batch.src_da_label[:, 3],
+                                batch.src_da_label[:, 4], batch.src_da_label[:, 5], batch.src_da_label[:, 6], batch.src_da_label[:, 7],
+                                batch.src_da_label[:, 8], batch.src_da_label[:, 9], batch.src_da_label[:, 10], batch.src_da_label[:, 11]
+                            ),
+                            tgt_da_label=(batch.tgt_da_label,)
+                        )
                 # 3. Compute loss in shards for memory efficiency.
                 batch_stats1 = self.train_loss.sharded_compute_loss(
                     batch, first_outputs, first_attns, j,

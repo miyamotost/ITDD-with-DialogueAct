@@ -28,8 +28,7 @@ class STransformerEncoderLayer(nn.Module):
     def __init__(self, d_model, heads, d_ff, dropout):
         super(STransformerEncoderLayer, self).__init__()
 
-        self.self_attn = onmt.modules.MultiHeadedAttention(
-            heads, d_model, dropout=dropout)
+        self.self_attn = onmt.modules.MultiHeadedAttention(heads, d_model, dropout=dropout)
         self.feed_forward = PositionwiseFeedForward(d_model, d_ff, dropout)
         self.layer_norm = nn.LayerNorm(d_model, eps=1e-6)
         self.dropout = nn.Dropout(dropout)
@@ -48,8 +47,7 @@ class STransformerEncoderLayer(nn.Module):
             * outputs `[batch_size x src_len x model_dim]`
         """
         input_norm = self.layer_norm(inputs)
-        context, _ = self.self_attn(input_norm, input_norm, input_norm,
-                                    mask=mask)
+        context, _ = self.self_attn(input_norm, input_norm, input_norm, mask=mask)
         out = self.dropout(context) + inputs
         return self.feed_forward(out)
 
@@ -74,18 +72,22 @@ class ATransformerEncoderLayer(nn.Module):
 
         self.model_mode = model_mode
 
-        self.self_attn = onmt.modules.MultiHeadedAttention(
-            heads, d_model, dropout=dropout)
-        self.knowledge_attn = onmt.modules.MultiHeadedAttention(
-            heads, d_model, dropout=dropout)
-        self.context_attn = onmt.modules.MultiHeadedAttention(
-            heads, d_model, dropout=dropout)
+        self.self_attn = onmt.modules.MultiHeadedAttention(heads, d_model, dropout=dropout)
+        self.knowledge_attn = onmt.modules.MultiHeadedAttention(heads, d_model, dropout=dropout)
+        self.context_attn = onmt.modules.MultiHeadedAttention(heads, d_model, dropout=dropout)
 
-        if self.model_mode in ['top_act', 'all_acts']:
-            # 2 layer FFN (dim: 512 -> hidden size -> 512)
+        if self.model_mode == 'top_act':
+            # 2 layer FFN (dim: 512+1 -> hidden size -> 512+1)
             self.feed_forward = PositionwiseFeedForward(d_model+1, d_ff, dropout)
+            # 1 layer FFN (dim: 512+1 -> 512)
             self.feed_forward2 = nn.Linear(d_model+1, d_model)
-        elif self.model_mode in ['default']:
+        elif self.model_mode == 'all_acts':
+            # 2 layer FFN (dim: 512+4 -> hidden size -> 512+4)
+            self.feed_forward = PositionwiseFeedForward(d_model+4, d_ff, dropout)
+            # 1 layer FFN (dim: 512+4 -> 512)
+            self.feed_forward2 = nn.Linear(d_model+4, d_model)
+        else:
+            # default
             self.feed_forward = PositionwiseFeedForward(d_model, d_ff, dropout)
 
         self.layer_norm_1 = nn.LayerNorm(d_model, eps=1e-6)
@@ -122,12 +124,20 @@ class ATransformerEncoderLayer(nn.Module):
             out = knl_out
 
         if self.model_mode in ['top_act', 'all_acts']:
-            da_emb = torch.empty(out.shape[0], out.shape[1], 1, device=out.device) # da_emb.shape = torch.Size([13, 50, 1])
-            for i in range(out.shape[0]):
-                da_emb[i].fill_(src_da_label[i])
-            out = torch.cat((out, da_emb), dim=2) # out.shape = torch.Size([13, 50, 513])
-            out = self.feed_forward(out) # dim: 513 -> 513,  out.shape = torch.Size([13, 50, 513])
-            out = self.feed_forward2(out) # dim: 513 -> 512, out.shape = torch.Size([13, 50, 512])
+            if self.model_mode == 'top_act':
+                da_emb = torch.empty(out.shape[0], out.shape[1], 1, device=out.device) # da_emb.shape = torch.Size([13, 50, 1])
+                for i in range(out.shape[0]):
+                    da_emb[i].fill_(src_da_label[i])
+            elif self.model_mode == 'all_acts':
+                da_emb = torch.empty(out.shape[0], out.shape[1], 4, device=out.device) # da_emb.shape = torch.Size([13, 50, 4])
+                for i in range(out.shape[0]):
+                    da_emb[i, :, 0].fill_(src_da_label[0][i])
+                    da_emb[i, :, 1].fill_(src_da_label[1][i])
+                    da_emb[i, :, 2].fill_(src_da_label[2][i])
+                    da_emb[i, :, 3].fill_(src_da_label[3][i])
+            out = torch.cat((out, da_emb), dim=2) # out.shape = torch.Size([13, 50, 513 or 516])
+            out = self.feed_forward(out) # dim: 513 -> 513 or 516 -> 516,  out.shape = torch.Size([13, 50, 513 or 516])
+            out = self.feed_forward2(out) # dim: 513 or 516 -> 512, out.shape = torch.Size([13, 50, 512])
         elif self.model_mode in ['default']:
             out = self.feed_forward(out)
 
@@ -277,7 +287,7 @@ class TransformerEncoder(EncoderBase):
         self.htransformer = HTransformerEncoder(model_mode, num_layers, d_model, heads, d_ff, dropout, embeddings)
 
     def forward(self, src, knl=None, lengths=None, knl_lengths=None, src_da_label=(1, 1, 1)):
-        history = self.history2list(src, knl, src_da_label)
+        history = self.history2list(src, knl, src_da_label, self.model_mode)
         tgt_knl = knl[600:, :, :]
         # utterance in k and document in k+1 are passed through Self-Attentive Encoder for Decoder
         emb, knl_bank_tgt, knl_mask = self.knltransformer(tgt_knl, None)
@@ -297,14 +307,19 @@ class TransformerEncoder(EncoderBase):
         return emb, his_bank, src_bank, knl_bank_tgt, lengths
 
     @staticmethod
-    def history2list(src, knl, src_da_label):
+    def history2list(src, knl, src_da_label, model_mode):
         u1 = src[:50, :, :]
         u2 = src[50:100, :, :]
         u3 = src[100:, :, :]
         k1 = knl[:200, :, :]
         k2 = knl[200:400, :, :]
         k3 = knl[400:600, :, :]
-        l1 = src_da_label[0]
-        l2 = src_da_label[1]
-        l3 = src_da_label[2]
+        if model_mode == 'top_act':
+            l1 = src_da_label[0]
+            l2 = src_da_label[1]
+            l3 = src_da_label[2]
+        elif model_mode == 'all_acts':
+            l1 = (src_da_label[0], src_da_label[1], src_da_label[2], src_da_label[3])
+            l2 = (src_da_label[4], src_da_label[5], src_da_label[6], src_da_label[7])
+            l3 = (src_da_label[8], src_da_label[9], src_da_label[10], src_da_label[11])
         return (u1, k1, l1), (u2, k2, l2), (u3, k3, l3)

@@ -15,43 +15,21 @@ from onmt.utils.logging import logger
 from onmt.train_single import main as single_main
 
 
-def main(opt):
-    if opt.rnn_type == "SRU" and not opt.gpu_ranks:
-        raise AssertionError("Using SRU requires -gpu_ranks set.")
+def parse_args():
+    parser = configargparse.ArgumentParser(
+        description='train.py',
+        config_file_parser_class=configargparse.YAMLConfigFileParser,
+        formatter_class=configargparse.ArgumentDefaultsHelpFormatter)
 
-    if opt.epochs:
-        raise AssertionError("-epochs is deprecated please use -train_steps.")
+    opts.general_opts(parser)
+    opts.config_opts(parser)
+    opts.add_md_help_argument(parser)
+    opts.model_opts(parser)
+    opts.train_opts(parser)
 
-    if opt.truncated_decoder > 0 and opt.accum_count > 1:
-        raise AssertionError("BPTT is not compatible with -accum > 1")
+    opt = parser.parse_args()
 
-    if opt.gpuid:
-        raise AssertionError("gpuid is deprecated \
-              see world_size and gpu_ranks")
-
-    nb_gpu = len(opt.gpu_ranks)
-
-    if opt.world_size > 1:
-        mp = torch.multiprocessing.get_context('spawn')
-        # Create a thread to listen for errors in the child processes.
-        error_queue = mp.SimpleQueue()
-        error_handler = ErrorHandler(error_queue)
-        # Train with multiprocessing.
-        procs = []
-        for device_id in range(nb_gpu):
-            procs.append(mp.Process(target=run, args=(
-                opt, device_id, error_queue, ), daemon=True))
-            procs[device_id].start()
-            logger.info(" Starting process pid: %d  " % procs[device_id].pid)
-            error_handler.add_child(procs[device_id].pid)
-        for p in procs:
-            p.join()
-
-    elif nb_gpu == 1:  # case 1 GPU only
-        single_main(opt, 0)
-    else:   # case only CPU
-        single_main(opt, -1)
-
+    return opt
 
 def run(opt, device_id, error_queue):
     """ run process """
@@ -105,19 +83,46 @@ class ErrorHandler(object):
         raise Exception(msg)
 
 
+def main():
+    opt = parse_args()
+    print("[train.py] opt.model_mode: {}".format(opt.model_mode))
+
+    if opt.rnn_type == "SRU" and not opt.gpu_ranks:
+        raise AssertionError("Using SRU requires -gpu_ranks set.")
+
+    if opt.epochs:
+        raise AssertionError("-epochs is deprecated please use -train_steps.")
+
+    if opt.truncated_decoder > 0 and opt.accum_count > 1:
+        raise AssertionError("BPTT is not compatible with -accum > 1")
+
+    if opt.gpuid:
+        raise AssertionError("gpuid is deprecated \
+              see world_size and gpu_ranks")
+
+    nb_gpu = len(opt.gpu_ranks)
+
+    if opt.world_size > 1:
+        mp = torch.multiprocessing.get_context('spawn')
+        # Create a thread to listen for errors in the child processes.
+        error_queue = mp.SimpleQueue()
+        error_handler = ErrorHandler(error_queue)
+        # Train with multiprocessing.
+        procs = []
+        for device_id in range(nb_gpu):
+            procs.append(mp.Process(target=run, args=(
+                opt, device_id, error_queue, ), daemon=True))
+            procs[device_id].start()
+            logger.info(" Starting process pid: %d  " % procs[device_id].pid)
+            error_handler.add_child(procs[device_id].pid)
+        for p in procs:
+            p.join()
+
+    elif nb_gpu == 1:  # case 1 GPU only
+        single_main(opt, 0)
+    else:   # case only CPU
+        single_main(opt, -1)
+
+
 if __name__ == "__main__":
-    parser = configargparse.ArgumentParser(
-        description='train.py',
-        config_file_parser_class=configargparse.YAMLConfigFileParser,
-        formatter_class=configargparse.ArgumentDefaultsHelpFormatter)
-
-    opts.general_opts(parser)
-    opts.config_opts(parser)
-    opts.add_md_help_argument(parser)
-    opts.model_opts(parser)
-    opts.train_opts(parser)
-
-    opt = parser.parse_args()
-
-    # print(opt.model_mode)
-    main(opt)
+    main()
