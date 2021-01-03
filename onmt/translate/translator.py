@@ -76,6 +76,7 @@ class Translator(object):
         report_score=True,
         logger=None
     ):
+        self.model_mode = opt.model_mode
 
         self.model = model
         self.fields = fields
@@ -176,7 +177,8 @@ class Translator(object):
             window=self.window,
             use_filter_pred=self.use_filter_pred,
             image_channel_size=self.image_channel_size,
-            dynamic_dict=self.copy_attn
+            dynamic_dict=self.copy_attn,
+            model_mode=self.model_mode
         )
 
         cur_device = "cuda" if self.cuda else "cpu"
@@ -209,7 +211,7 @@ class Translator(object):
             )
             translations = builder.from_batch(batch_data)
 
-            if i%5==0:
+            if i%50==0:
                 print("Translation Step: {}".format(i))
 
             for trans in translations:
@@ -330,11 +332,24 @@ class Translator(object):
             _, knl_lengths = batch.knl
         elif data_type == 'audio':
             src_lengths = batch.src_lengths
+
         # print("[onmt.translate.translator.py] batch.src_da_label[:, 0].shape: {}".format(batch.src_da_label[:, 0].shape))
-        enc_states, his_memory_bank, src_memory_bank, knl_memory_bank, src_lengths = self.model.encoder(
-            src, knl, src_lengths, knl_lengths,
-            src_da_label=(batch.src_da_label[:, 0], batch.src_da_label[:, 1], batch.src_da_label[:, 2])
-        )
+        # print("[onmt.translate.translator.py] self.model_mode: {}".format(self.model_mode))
+        if self.model_mode in ['all_acts']:
+            enc_states, his_memory_bank, src_memory_bank, knl_memory_bank, src_lengths = self.model.encoder(
+                src, knl, src_lengths, knl_lengths,
+                src_da_label=(
+                    batch.src_da_label[:, 0], batch.src_da_label[:, 1], batch.src_da_label[:, 2], batch.src_da_label[:, 3],
+                    batch.src_da_label[:, 4], batch.src_da_label[:, 5], batch.src_da_label[:, 6], batch.src_da_label[:, 7],
+                    batch.src_da_label[:, 8], batch.src_da_label[:, 9], batch.src_da_label[:, 10], batch.src_da_label[:, 11]
+                )
+            )
+        else:
+            enc_states, his_memory_bank, src_memory_bank, knl_memory_bank, src_lengths = self.model.encoder(
+                src, knl, src_lengths, knl_lengths,
+                src_da_label=(batch.src_da_label[:, 0], batch.src_da_label[:, 1], batch.src_da_label[:, 2])
+            )
+
         if src_lengths is None:
             assert not isinstance(src_memory_bank, tuple), \
                 'Ensemble decoding only supported for text data'
@@ -694,8 +709,10 @@ class Translator(object):
 
         # TODO: operation test
         if isinstance(batch.tgt_da_label, tuple):
-            batch.tgt_da_label = tuple(tile(x, beam_size, dim=1) for x in batch.tgt_da_label)
-            mb_device = batch.tgt_da_label[0].device
+            print("batch.tgt_da_label is not expected as object type tuple.")
+            exit()
+            # batch.tgt_da_label = tuple(tile(x, beam_size, dim=1) for x in batch.tgt_da_label)
+            # mb_device = batch.tgt_da_label[0].device
         else:
             batch.tgt_da_label = tile(batch.tgt_da_label, beam_size, dim=0)
             mb_device = batch.tgt_da_label.device
@@ -866,6 +883,7 @@ class Translator(object):
 
     def _report_distinct(self, tgt_path):
         from tools.distinct_n.metrics import distinct_n_sentence_level, distinct_n_corpus_level
+
         # gold
         sentences = []
         with open(tgt_path, 'r') as f:
@@ -874,6 +892,7 @@ class Translator(object):
         res_gold1 = distinct_n_corpus_level(sentences, 1)
         res_gold2 = distinct_n_corpus_level(sentences, 2)
         res_gold3 = distinct_n_corpus_level(sentences, 3)
+
         # pred
         sentences = []
         with open(self.output, 'r') as f:
@@ -881,9 +900,13 @@ class Translator(object):
             print("[onmt.translate.translator.py]  sentences[0]: {}".format(sentences[0]))
         res_pred1 = distinct_n_corpus_level(sentences, 1)
         res_pred2 = distinct_n_corpus_level(sentences, 2)
-        # TODO: fix StopIteration error
-        # res_pred3 = distinct_n_corpus_level(sentences, 3)
+
+        width = 10000
         res_pred3 = 0
+        for idx in range(0, len(sentences), width):
+            res_pred3 += sum(distinct_n_sentence_level(sentence, 3) for sentence in sentences[idx:idx + width])
+        res_pred3 = res_pred3 / len(sentences)
+
         # output
         msg = '>> Distinct (gold: 1/2/3 = {}/{}/{}, pred: 1/2/3 = {}/{}/{})'.format(
             res_gold1, res_gold2, res_gold3, res_pred1, res_pred2, res_pred3
