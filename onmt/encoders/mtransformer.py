@@ -9,7 +9,7 @@ import onmt.opts as opts
 
 from onmt.encoders.encoder import EncoderBase
 # from onmt.utils.misc import aeq
-from onmt.modules.position_ffn import PositionwiseFeedForward
+from onmt.modules.position_ffn import PositionwiseFeedForward, PositionwiseFeedForward2
 
 
 class STransformerEncoderLayer(nn.Module):
@@ -67,32 +67,69 @@ class ATransformerEncoderLayer(nn.Module):
         dropout (float): dropout probability(0-1.0).
     """
 
-    def __init__(self, model_mode, d_model, heads, d_ff, dropout):
+    def __init__(self, model_mode, model_mode2, model_ffn_mode, d_model, heads, d_ff, dropout):
         super(ATransformerEncoderLayer, self).__init__()
 
         self.model_mode = model_mode
+        self.model_mode2 = model_mode2
+        self.model_ffn_mode = model_ffn_mode
 
-        self.self_attn = onmt.modules.MultiHeadedAttention(heads, d_model, dropout=dropout)
-        self.knowledge_attn = onmt.modules.MultiHeadedAttention(heads, d_model, dropout=dropout)
-        self.context_attn = onmt.modules.MultiHeadedAttention(heads, d_model, dropout=dropout)
-
-        if self.model_mode == 'top_act':
-            # 2 layer FFN (dim: 512+1 -> hidden size -> 512+1)
-            self.feed_forward = PositionwiseFeedForward(d_model+1, d_ff, dropout)
-            # 1 layer FFN (dim: 512+1 -> 512)
-            self.feed_forward2 = nn.Linear(d_model+1, d_model)
-        elif self.model_mode == 'all_acts':
-            # 2 layer FFN (dim: 512+4 -> hidden size -> 512+4)
-            self.feed_forward = PositionwiseFeedForward(d_model+4, d_ff, dropout)
-            # 1 layer FFN (dim: 512+4 -> 512)
-            self.feed_forward2 = nn.Linear(d_model+4, d_model)
-        else:
-            # default
+        # TODO: branch test
+        if self.model_mode2 in ['default']:
+            # attention
+            self.self_attn = onmt.modules.MultiHeadedAttention(heads, d_model, dropout=dropout)
+            self.knowledge_attn = onmt.modules.MultiHeadedAttention(heads, d_model, dropout=dropout)
+            self.context_attn = onmt.modules.MultiHeadedAttention(heads, d_model, dropout=dropout)
+            # feed forward
             self.feed_forward = PositionwiseFeedForward(d_model, d_ff, dropout)
+            # layer normalization
+            self.layer_norm_1 = nn.LayerNorm(d_model, eps=1e-6)
+            self.layer_norm_2 = nn.LayerNorm(d_model, eps=1e-6)
+            self.layer_norm_3 = nn.LayerNorm(d_model, eps=1e-6)
+            # debug
+            print('default == {}'.format(self.model_mode2))
 
-        self.layer_norm_1 = nn.LayerNorm(d_model, eps=1e-6)
-        self.layer_norm_2 = nn.LayerNorm(d_model, eps=1e-6)
-        self.layer_norm_3 = nn.LayerNorm(d_model, eps=1e-6)
+        elif self.model_mode2 in ['ffn']:
+            # attention
+            self.self_attn = onmt.modules.MultiHeadedAttention(heads, d_model, dropout=dropout)
+            self.knowledge_attn = onmt.modules.MultiHeadedAttention(heads, d_model, dropout=dropout)
+            self.context_attn = onmt.modules.MultiHeadedAttention(heads, d_model, dropout=dropout)
+            # feed forward
+            if self.model_mode in ['top_act']:
+                d_act = 1
+                print('top_act == {}'.format(self.model_mode))
+            elif self.model_mode in ['all_acts']:
+                d_act = 4
+                print('all_acts == {}'.format(self.model_mode))
+            else:
+                print('choose valid option -model_mode')
+                exit()
+            if self.model_ffn_mode in ['additional']:
+                self.feed_forward = PositionwiseFeedForward(d_model+d_act, d_ff, dropout)
+                self.feed_forward2 = nn.Linear(d_model+d_act, d_model)
+                print('additional == {}'.format(self.model_ffn_mode))
+            elif self.model_ffn_mode in ['resnet_nLN', 'resnet_LN']:
+                self.feed_forward = PositionwiseFeedForward2(d_model+d_act, d_model, d_ff, dropout, self.model_ffn_mode)
+                print('resnet_LN|resnet_nLN == {}'.format(self.model_ffn_mode))
+            else:
+                print('choose valid option -model_ffn_mode')
+                exit()
+            # layer normalization
+            self.layer_norm_1 = nn.LayerNorm(d_model, eps=1e-6)
+            self.layer_norm_2 = nn.LayerNorm(d_model, eps=1e-6)
+            self.layer_norm_3 = nn.LayerNorm(d_model, eps=1e-6)
+            # debug
+            print('ffn == {}'.format(self.model_mode2))
+
+        elif self.model_mode2 in ['utt_emb']:
+            print('utt_emb == {}'.format(self.model_mode2))
+
+        else:
+            print('choose valid option -model_mode2')
+            exit()
+
+        exit()
+
         self.dropout = nn.Dropout(dropout)
 
     def forward(self, inputs, src_mask, knl_bank, knl_mask, his_bank, his_mask, src_da_label=1):
@@ -123,12 +160,16 @@ class ATransformerEncoderLayer(nn.Module):
         else:
             out = knl_out
 
-        if self.model_mode in ['top_act', 'all_acts']:
-            if self.model_mode == 'top_act':
+        # TODO: branch test
+        if self.model_mode2 in ['default']:
+            out = self.feed_forward(out)
+
+        elif self.model_mode2 in ['ffn']:
+            if self.model_mode in ['top_act']:
                 da_emb = torch.empty(out.shape[0], out.shape[1], 1, device=out.device) # da_emb.shape = torch.Size([13, 50, 1])
                 for i in range(out.shape[0]):
                     da_emb[i].fill_(src_da_label[i])
-            elif self.model_mode == 'all_acts':
+            elif self.model_mode in ['all_acts']:
                 da_emb = torch.empty(out.shape[0], out.shape[1], 4, device=out.device) # da_emb.shape = torch.Size([13, 50, 4])
                 for i in range(out.shape[0]):
                     da_emb[i, :, 0].fill_(src_da_label[0][i])
@@ -136,10 +177,19 @@ class ATransformerEncoderLayer(nn.Module):
                     da_emb[i, :, 2].fill_(src_da_label[2][i])
                     da_emb[i, :, 3].fill_(src_da_label[3][i])
             out = torch.cat((out, da_emb), dim=2) # out.shape = torch.Size([13, 50, 513 or 516])
-            out = self.feed_forward(out) # dim: 513 -> 513 or 516 -> 516,  out.shape = torch.Size([13, 50, 513 or 516])
-            out = self.feed_forward2(out) # dim: 513 or 516 -> 512, out.shape = torch.Size([13, 50, 512])
-        elif self.model_mode in ['default']:
-            out = self.feed_forward(out)
+            if self.model_ffn_mode in ['additional']:
+                out = self.feed_forward(out) # out.shape = torch.Size([13, 50, 513 or 516])
+                out = self.feed_forward2(out)
+            elif self.model_ffn_mode in ['resnet_nLN', 'resnet_LN']:
+                out = self.feed_forward(out)
+
+        elif self.model_mode2 in ['utt_emb']:
+            print('utt_emb == {}'.format(self.model_mode2))
+            exit()
+
+        else:
+            print('choose valid option -model_mode2')
+            exit()
 
         return out
 
@@ -240,14 +290,15 @@ class HTransformerEncoder(EncoderBase):
         * memory_bank `[src_len x batch_size x model_dim]`
     """
 
-    def __init__(self, model_mode, num_layers, d_model, heads, d_ff,
-                 dropout, embeddings):
+    def __init__(self, model_mode, model_mode2, model_ffn_mode, num_layers, d_model, heads, d_ff, dropout, embeddings):
         super(HTransformerEncoder, self).__init__()
         self.model_mode = model_mode
+        self.model_mode2 = model_mode2
+        self.model_ffn_mode = model_ffn_mode
         self.num_layers = num_layers
         self.embeddings = embeddings
         self.transformer = nn.ModuleList(
-            [ATransformerEncoderLayer(model_mode, d_model, heads, d_ff, dropout)
+            [ATransformerEncoderLayer(model_mode, model_mode2, model_ffn_mode, d_model, heads, d_ff, dropout)
              for _ in range(num_layers)])
         self.layer_norm = nn.LayerNorm(d_model, eps=1e-6)
 
@@ -274,17 +325,19 @@ class HTransformerEncoder(EncoderBase):
 
 
 class TransformerEncoder(EncoderBase):
-    def __init__(self, model_mode, num_layers, d_model, heads, d_ff, dropout, embeddings):
+    def __init__(self, model_mode, model_mode2, model_ffn_mode, num_layers, d_model, heads, d_ff, dropout, embeddings):
         # KTransformerEncoder 与 HTransformerEncoder暂时共享embedding
         super(TransformerEncoder, self).__init__()
 
         self.model_mode = model_mode
+        self.model_mode2 = model_mode2
+        self.model_ffn_mode = model_ffn_mode
 
         self.num_layers = num_layers
         self.embeddings = embeddings
         self.knltransformer = KNLTransformerEncoder(num_layers, d_model, heads, d_ff, dropout, embeddings)
         self.histransformer = KNLTransformerEncoder(num_layers, d_model, heads, d_ff, dropout, embeddings)
-        self.htransformer = HTransformerEncoder(model_mode, num_layers, d_model, heads, d_ff, dropout, embeddings)
+        self.htransformer = HTransformerEncoder(model_mode, model_mode2, model_ffn_mode, num_layers, d_model, heads, d_ff, dropout, embeddings)
 
     def forward(self, src, knl=None, lengths=None, knl_lengths=None, src_da_label=(1, 1, 1)):
         history = self.history2list(src, knl, src_da_label, self.model_mode)
@@ -322,4 +375,8 @@ class TransformerEncoder(EncoderBase):
             l1 = (src_da_label[0], src_da_label[1], src_da_label[2], src_da_label[3])
             l2 = (src_da_label[4], src_da_label[5], src_da_label[6], src_da_label[7])
             l3 = (src_da_label[8], src_da_label[9], src_da_label[10], src_da_label[11])
+        else:
+            l1 = 0
+            l2 = 0
+            l3 = 0
         return (u1, k1, l1), (u2, k2, l2), (u3, k3, l3)
