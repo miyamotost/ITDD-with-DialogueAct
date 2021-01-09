@@ -67,6 +67,8 @@ def build_encoder(opt, embeddings):
     if opt.encoder_type == "transformer":
         encoder = TransformerEncoder(
             opt.model_mode,
+            opt.model_mode2,
+            opt.model_ffn_mode,
             opt.enc_layers,
             opt.enc_rnn_size,
             opt.heads,
@@ -106,6 +108,8 @@ def build_decoder(opt, embeddings):
     if opt.decoder_type == "transformer":
         decoder = TransformerDecoder(
             opt.model_mode,
+            opt.model_mode2,
+            opt.model_ffn_mode,
             opt.dec_layers,
             opt.dec_rnn_size,
             opt.heads,
@@ -161,7 +165,12 @@ def load_test_model(opt, dummy_opt, model_path=None):
 
     #if not hasattr(model_opt, 'model_mode'):
     model_opt.model_mode = opt.model_mode
-    print("[onmt.model_builder.py] model_opt.model_mode: {}".format(opt.model_mode))
+    model_opt.model_mode2 = opt.model_mode2
+    model_opt.model_ffn_mode = opt.model_ffn_mode
+    print(
+        "[onmt.model_builder.py] model_opt.model_mode: {}, model_opt.model_mode2: {}, model_opt.model_ffn_mode: {}"
+        .format(model_opt.model_mode, model_opt.model_mode2, model_opt.model_ffn_mode)
+    )
 
     model = build_base_model(model_opt, fields, use_gpu(opt), checkpoint)
     model.eval()
@@ -196,7 +205,10 @@ def build_base_model(model_opt, fields, gpu, checkpoint=None):
         #print("[build_base_model in onmt.model_builder.py] fields[\"src\"]: {}".format(fields["src"]))
         #print("[build_base_model in onmt.model_builder.py] feat_fields: {}".format(feat_fields))
         #print("[build_base_model in onmt.model_builder.py] src_emb: {}".format(src_emb))
-        print("[onmt.model_builder.py] model_opt.model_mode: {}".format(model_opt.model_mode))
+        print(
+            "[onmt.model_builder.py] model_opt.model_mode: {}, model_opt.model_mode2: {}, model_opt.model_ffn_mode: {}"
+            .format(model_opt.model_mode, model_opt.model_mode2, model_opt.model_ffn_mode)
+        )
         encoder = build_encoder(model_opt, src_emb)
     elif model_opt.model_type == "img":
         # why is build_encoder not used here?

@@ -6,10 +6,25 @@ from onmt.models.sru import CheckSRU
 
 
 def general_opts(parser):
+    '''
+    Option:
+        model_mode | model_mode2 | model_ffn_mode
+            (1)default + default + default
+            (6)[top_act|all_act] + ffn + [additional|resnet_LN|resnet_nLN]
+            (2)[top_act|all_act] + utt_emb + default
+    '''
     parser.add('--model_mode', '-model_mode', required=True,
                type=str, default='default',
                choices=['default', 'top_act', 'all_acts'],
                help='Specify the model which used for training or predicting.')
+    parser.add('--model_mode2', '-model_mode2', required=True,
+               type=str, default='default',
+               choices=['default', 'ffn', 'utt_emb'],
+               help='Specify the model which used for training or predicting.')
+    parser.add('--model_ffn_mode', '-model_ffn_mode', required=True,
+               type=str, default='default',
+               choices=['default', 'additional', 'resnet_nLN', 'resnet_LN'],
+               help='Specify the feef forward network class.')
 
 
 def config_opts(parser):

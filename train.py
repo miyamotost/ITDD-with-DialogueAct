@@ -85,7 +85,10 @@ class ErrorHandler(object):
 
 def main():
     opt = parse_args()
-    print("[train.py] opt.model_mode: {}".format(opt.model_mode))
+    print(
+        "[train.py] opt.model_mode: {}, opt.model_mode2: {},  opt.model_ffn_mode: {}"
+        .format(opt.model_mode, opt.model_mode2, opt.model_ffn_mode)
+    )
 
     if opt.rnn_type == "SRU" and not opt.gpu_ranks:
         raise AssertionError("Using SRU requires -gpu_ranks set.")
