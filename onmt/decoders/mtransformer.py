@@ -63,24 +63,19 @@ class TransformerDecoderLayer(nn.Module):
             # other attention
             self.knowledge_attn = onmt.modules.MultiHeadedAttention(heads, d_model, dropout=dropout)
             self.history_attn = onmt.modules.MultiHeadedAttention(heads, d_model, dropout=dropout)
-            # TODO: branch test
             # feed forward
             if self.model_mode in ['top_act']:
                 d_act = 1
-                print('top_act == {}'.format(self.model_mode))
             elif self.model_mode in ['all_acts']:
                 d_act = 4
-                print('all_acts == {}'.format(self.model_mode))
             else:
                 print('choose valid option -model_mode')
                 exit()
             if self.model_ffn_mode in ['additional']:
                 self.feed_forward = PositionwiseFeedForward(d_model+d_act, d_ff, dropout)
                 self.feed_forward2 = nn.Linear(d_model+d_act, d_model)
-                print('additional == {}'.format(self.model_ffn_mode))
             elif self.model_ffn_mode in ['resnet_nLN', 'resnet_LN']:
                 self.feed_forward = PositionwiseFeedForward2(d_model+d_act, d_model, d_ff, dropout, self.model_ffn_mode)
-                print('resnet_LN|resnet_nLN == {}'.format(self.model_ffn_mode))
             else:
                 print('choose valid option -model_ffn_mode')
                 exit()
@@ -88,7 +83,11 @@ class TransformerDecoderLayer(nn.Module):
             self.layer_norm_1 = nn.LayerNorm(d_model, eps=1e-6)
             self.layer_norm_2 = nn.LayerNorm(d_model, eps=1e-6)
             self.layer_norm_3 = nn.LayerNorm(d_model, eps=1e-6)
-            print('ffn == {}'.format(self.model_mode2))
+            # debug
+            print(
+                'init decoder to ffn: model_mode={}, model_mode2={}, model_ffn_mode={}'
+                .format(self.model_mode, self.model_mode2, self.model_ffn_mode)
+            )
 
         elif self.model_mode2 in ['utt_emb']:
             # TODO: branch test
