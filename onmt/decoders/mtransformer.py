@@ -101,8 +101,6 @@ class TransformerDecoderLayer(nn.Module):
             print('choose valid option -model_mode2')
             exit()
 
-        exit()
-
         self.dropout = dropout
         self.drop = nn.Dropout(dropout)
         mask = self._get_attn_subsequent_mask(MAX_SIZE)

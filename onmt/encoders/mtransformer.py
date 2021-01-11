@@ -134,8 +134,6 @@ class ATransformerEncoderLayer(nn.Module):
             print('choose valid option -model_mode2')
             exit()
 
-        exit()
-
         self.dropout = nn.Dropout(dropout)
 
     def forward(self, inputs, src_mask, knl_bank, knl_mask, his_bank, his_mask, src_da_label=1):
