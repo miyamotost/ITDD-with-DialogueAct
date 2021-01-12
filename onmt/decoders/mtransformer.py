@@ -91,6 +91,29 @@ class TransformerDecoderLayer(nn.Module):
 
         elif self.model_mode2 in ['utt_emb']:
             # TODO: branch test
+            if self.model_mode in ['top_act']:
+                d_act = 1
+            elif self.model_mode in ['all_acts']:
+                d_act = 4
+            else:
+                print('choose valid option -model_mode')
+                exit()
+            # align dimention
+            self.align_feed_forward = nn.Linear(d_model+d_act, d_model)
+            # self attention
+            if self_attn_type == "scaled-dot":
+                self.self_attn = onmt.modules.MultiHeadedAttention(heads, d_model, dropout=dropout)
+            elif self_attn_type == "average":
+                self.self_attn = onmt.modules.AverageAttention(d_model, dropout=dropout)
+            # other attention
+            self.knowledge_attn = onmt.modules.MultiHeadedAttention(heads, d_model, dropout=dropout)
+            self.history_attn = onmt.modules.MultiHeadedAttention(heads, d_model, dropout=dropout)
+            # feed forward
+            self.feed_forward = PositionwiseFeedForward(d_model, d_ff, dropout)
+            # layer normalization
+            self.layer_norm_1 = nn.LayerNorm(d_model, eps=1e-6)
+            self.layer_norm_2 = nn.LayerNorm(d_model, eps=1e-6)
+            self.layer_norm_3 = nn.LayerNorm(d_model, eps=1e-6)
             # debug
             print(
                 'init decoder to utt_emb: model_mode={}, model_mode2={}, model_ffn_mode={}'
@@ -127,39 +150,66 @@ class TransformerDecoderLayer(nn.Module):
         if step is None:
             dec_mask = torch.gt(tgt_pad_mask + self.mask[:, :tgt_pad_mask.size(-1), :tgt_pad_mask.size(-1)], 0)
 
-        input_norm = self.layer_norm_1(inputs)
-
-        if self.self_attn_type == "scaled-dot":
-            query, attn = self.self_attn(input_norm, input_norm, input_norm,
-                                         mask=dec_mask,
-                                         layer_cache=layer_cache,
-                                         type="self")
-        elif self.self_attn_type == "average":
-            query, attn = self.self_attn(input_norm, mask=dec_mask,
-                                         layer_cache=layer_cache, step=step)
-
-        query = self.drop(query) + inputs
-
-        query_norm = self.layer_norm_2(query)
-        mid, attn = self.knowledge_attn(knl_bank, knl_bank, query_norm,
-                                        mask=knl_pad_mask,
-                                        layer_cache=layer_cache,
-                                        type="knl")
-        knl_out = self.drop(mid) + query
-        knl_out_norm = self.layer_norm_3(knl_out)
-
-        out, attn = self.history_attn(src_bank, src_bank, knl_out_norm,
-                                      mask=src_pad_mask,
-                                      layer_cache=layer_cache,
-                                      type="src")
-
-        out = self.drop(out) + knl_out
-
-        # TODO: branch test
         if self.model_mode2 in ['default']:
+            input_norm = self.layer_norm_1(inputs)
+
+            if self.self_attn_type == "scaled-dot":
+                query, attn = self.self_attn(input_norm, input_norm, input_norm,
+                                             mask=dec_mask,
+                                             layer_cache=layer_cache,
+                                             type="self")
+            elif self.self_attn_type == "average":
+                query, attn = self.self_attn(input_norm, mask=dec_mask,
+                                             layer_cache=layer_cache, step=step)
+
+            query = self.drop(query) + inputs
+
+            query_norm = self.layer_norm_2(query)
+            mid, attn = self.knowledge_attn(knl_bank, knl_bank, query_norm,
+                                            mask=knl_pad_mask,
+                                            layer_cache=layer_cache,
+                                            type="knl")
+            knl_out = self.drop(mid) + query
+            knl_out_norm = self.layer_norm_3(knl_out)
+
+            out, attn = self.history_attn(src_bank, src_bank, knl_out_norm,
+                                          mask=src_pad_mask,
+                                          layer_cache=layer_cache,
+                                          type="src")
+
+            out = self.drop(out) + knl_out
+
             out = self.feed_forward(out)
 
         elif self.model_mode2 in ['ffn']:
+            input_norm = self.layer_norm_1(inputs)
+
+            if self.self_attn_type == "scaled-dot":
+                query, attn = self.self_attn(input_norm, input_norm, input_norm,
+                                             mask=dec_mask,
+                                             layer_cache=layer_cache,
+                                             type="self")
+            elif self.self_attn_type == "average":
+                query, attn = self.self_attn(input_norm, mask=dec_mask,
+                                             layer_cache=layer_cache, step=step)
+
+            query = self.drop(query) + inputs
+
+            query_norm = self.layer_norm_2(query)
+            mid, attn = self.knowledge_attn(knl_bank, knl_bank, query_norm,
+                                            mask=knl_pad_mask,
+                                            layer_cache=layer_cache,
+                                            type="knl")
+            knl_out = self.drop(mid) + query
+            knl_out_norm = self.layer_norm_3(knl_out)
+
+            out, attn = self.history_attn(src_bank, src_bank, knl_out_norm,
+                                          mask=src_pad_mask,
+                                          layer_cache=layer_cache,
+                                          type="src")
+
+            out = self.drop(out) + knl_out
+
             if self.model_mode in ['top_act']:
                 da_emb = torch.empty(out.shape[0], out.shape[1], 1, device=out.device)
                 for i in range(out.shape[0]):
@@ -179,8 +229,44 @@ class TransformerDecoderLayer(nn.Module):
                 out = self.feed_forward(out)
 
         elif self.model_mode2 in ['utt_emb']:
-            print('utt_emb == {}'.format(self.model_mode2))
-            exit()
+            # embed DA
+            # TODO: debug
+            if self.model_mode in ['top_act']:
+                print("not implemented!")
+                exit()
+            elif self.model_mode in ['all_acts']:
+                da_emb = torch.empty(inputs.shape[0], inputs.shape[1], 4, device=inputs.device)
+                for i in range(inputs.shape[0]):
+                    da_emb[i, :, 0].fill_(tgt_da_label[0][i][0])
+                    da_emb[i, :, 1].fill_(tgt_da_label[0][i][1])
+                    da_emb[i, :, 2].fill_(tgt_da_label[0][i][2])
+                    da_emb[i, :, 3].fill_(tgt_da_label[0][i][3])
+
+            inputs = torch.cat((inputs, da_emb), dim=2) # torch.Size([batch_size, word_len, 512+da_dim])
+            inputs = self.align_feed_forward(inputs) # torch.Size([batch_size, word_len, 512])
+
+            # predict
+            input_norm = self.layer_norm_1(inputs)
+            if self.self_attn_type == "scaled-dot":
+                query, attn = self.self_attn(input_norm, input_norm, input_norm, mask=dec_mask, layer_cache=layer_cache, type="self")
+            elif self.self_attn_type == "average":
+                query, attn = self.self_attn(input_norm, mask=dec_mask, layer_cache=layer_cache, step=step)
+            query = self.drop(query) + inputs
+            query_norm = self.layer_norm_2(query)
+            mid, attn = self.knowledge_attn(
+                knl_bank, knl_bank, query_norm,
+                mask=knl_pad_mask, layer_cache=layer_cache, type="knl"
+            )
+            knl_out = self.drop(mid) + query
+            knl_out_norm = self.layer_norm_3(knl_out)
+            out, attn = self.history_attn(
+                src_bank, src_bank, knl_out_norm,
+                mask=src_pad_mask, layer_cache=layer_cache, type="src"
+            )
+            out = self.drop(out) + knl_out
+
+            # feed forward
+            out = self.feed_forward(out)
 
         else:
             print('choose valid option -model_mode2')

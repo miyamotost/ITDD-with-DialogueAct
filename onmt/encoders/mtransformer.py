@@ -124,6 +124,25 @@ class ATransformerEncoderLayer(nn.Module):
 
         elif self.model_mode2 in ['utt_emb']:
             # TODO: branch test
+            if self.model_mode in ['top_act']:
+                d_act = 1
+            elif self.model_mode in ['all_acts']:
+                d_act = 4
+            else:
+                print('choose valid option -model_mode')
+                exit()
+            # align dimention
+            self.align_feed_forward = nn.Linear(d_model+d_act, d_model)
+            # attention
+            self.self_attn = onmt.modules.MultiHeadedAttention(heads, d_model, dropout=dropout)
+            self.knowledge_attn = onmt.modules.MultiHeadedAttention(heads, d_model, dropout=dropout)
+            self.context_attn = onmt.modules.MultiHeadedAttention(heads, d_model, dropout=dropout)
+            # feed forward
+            self.feed_forward = PositionwiseFeedForward(d_model, d_ff, dropout)
+            # layer normalization
+            self.layer_norm_1 = nn.LayerNorm(d_model, eps=1e-6)
+            self.layer_norm_2 = nn.LayerNorm(d_model, eps=1e-6)
+            self.layer_norm_3 = nn.LayerNorm(d_model, eps=1e-6)
             # debug
             print(
                 'init encoder to utt_emb: model_mode={}, model_mode2={}, model_ffn_mode={}'
@@ -149,26 +168,42 @@ class ATransformerEncoderLayer(nn.Module):
 
             * outputs `[batch_size x src_len x model_dim]`
         """
-        input_norm = self.layer_norm_1(inputs)
-        query, _ = self.self_attn(input_norm, input_norm, input_norm, mask=src_mask)
-        query = self.dropout(query) + inputs
-        query_norm = self.layer_norm_2(query)
-        knl_out, _ = self.knowledge_attn(knl_bank, knl_bank, query_norm, mask=knl_mask)
-        knl_out = self.dropout(knl_out) + query
-
-        if his_bank is not None:
-            his_bank = his_bank.transpose(0, 1).contiguous()
-            knl_out_norm = self.layer_norm_3(knl_out)
-            out, _ = self.context_attn(his_bank, his_bank, knl_out_norm, mask=his_mask)
-            out = self.dropout(out) + knl_out
-        else:
-            out = knl_out
-
-        # TODO: branch test
         if self.model_mode2 in ['default']:
+            input_norm = self.layer_norm_1(inputs)
+            query, _ = self.self_attn(input_norm, input_norm, input_norm, mask=src_mask)
+            query = self.dropout(query) + inputs
+            query_norm = self.layer_norm_2(query)
+            knl_out, _ = self.knowledge_attn(knl_bank, knl_bank, query_norm, mask=knl_mask)
+            knl_out = self.dropout(knl_out) + query
+
+            if his_bank is not None:
+                his_bank = his_bank.transpose(0, 1).contiguous()
+                knl_out_norm = self.layer_norm_3(knl_out)
+                out, _ = self.context_attn(his_bank, his_bank, knl_out_norm, mask=his_mask)
+                out = self.dropout(out) + knl_out
+            else:
+                out = knl_out
+
+            # feed forward
             out = self.feed_forward(out)
 
         elif self.model_mode2 in ['ffn']:
+            input_norm = self.layer_norm_1(inputs)
+            query, _ = self.self_attn(input_norm, input_norm, input_norm, mask=src_mask)
+            query = self.dropout(query) + inputs
+            query_norm = self.layer_norm_2(query)
+            knl_out, _ = self.knowledge_attn(knl_bank, knl_bank, query_norm, mask=knl_mask)
+            knl_out = self.dropout(knl_out) + query
+
+            if his_bank is not None:
+                his_bank = his_bank.transpose(0, 1).contiguous()
+                knl_out_norm = self.layer_norm_3(knl_out)
+                out, _ = self.context_attn(his_bank, his_bank, knl_out_norm, mask=his_mask)
+                out = self.dropout(out) + knl_out
+            else:
+                out = knl_out
+
+            # feed forward
             if self.model_mode in ['top_act']:
                 da_emb = torch.empty(out.shape[0], out.shape[1], 1, device=out.device) # da_emb.shape = torch.Size([13, 50, 1])
                 for i in range(out.shape[0]):
@@ -188,8 +223,39 @@ class ATransformerEncoderLayer(nn.Module):
                 out = self.feed_forward(out)
 
         elif self.model_mode2 in ['utt_emb']:
-            print('utt_emb == {}'.format(self.model_mode2))
-            exit()
+            # embed DA
+            if self.model_mode in ['top_act']:
+                print("not implemented!")
+                exit()
+            elif self.model_mode in ['all_acts']:
+                da_emb = torch.empty(inputs.shape[0], inputs.shape[1], 4, device=inputs.device)
+                for i in range(inputs.shape[0]):
+                    da_emb[i, :, 0].fill_(src_da_label[0][i])
+                    da_emb[i, :, 1].fill_(src_da_label[1][i])
+                    da_emb[i, :, 2].fill_(src_da_label[2][i])
+                    da_emb[i, :, 3].fill_(src_da_label[3][i])
+
+            inputs = torch.cat((inputs, da_emb), dim=2) # torch.Size([batch_size, word_len, 512+da_dim])
+            inputs = self.align_feed_forward(inputs) # torch.Size([batch_size, word_len, 512])
+
+            # predict
+            input_norm = self.layer_norm_1(inputs)
+            query, _ = self.self_attn(input_norm, input_norm, input_norm, mask=src_mask)
+            query = self.dropout(query) + inputs
+            query_norm = self.layer_norm_2(query)
+            knl_out, _ = self.knowledge_attn(knl_bank, knl_bank, query_norm, mask=knl_mask)
+            knl_out = self.dropout(knl_out) + query
+
+            if his_bank is not None:
+                his_bank = his_bank.transpose(0, 1).contiguous()
+                knl_out_norm = self.layer_norm_3(knl_out)
+                out, _ = self.context_attn(his_bank, his_bank, knl_out_norm, mask=his_mask)
+                out = self.dropout(out) + knl_out
+            else:
+                out = knl_out
+
+            # feed forward
+            out = self.feed_forward(out)
 
         else:
             print('choose valid option -model_mode2')
