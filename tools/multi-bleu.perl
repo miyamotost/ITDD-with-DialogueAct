@@ -44,7 +44,7 @@ sub add_to_ref {
     my $s=0;
     if ($file =~ /.gz$/) {
 	open(REF,"gzip -dc $file|") or die "Can't read $file";
-    } else { 
+    } else {
 	open(REF,$file) or die "Can't read $file";
     }
     while(<REF>) {
@@ -157,7 +157,7 @@ $bleu = $brevity_penalty * exp((my_log( $bleu[1] ) +
 				my_log( $bleu[2] ) +
 				my_log( $bleu[3] ) +
 				my_log( $bleu[4] ) ) / 4) ;
-printf "BLEU = %.2f, %.1f/%.1f/%.1f/%.1f (BP=%.3f, ratio=%.3f, hyp_len=%d, ref_len=%d)\n",
+printf "BLEU = %.4f, %.5f/%.5f/%.5f/%.5f (BP=%.3f, ratio=%.3f, hyp_len=%d, ref_len=%d)\n",
     100*$bleu,
     100*$bleu[1],
     100*$bleu[2],
