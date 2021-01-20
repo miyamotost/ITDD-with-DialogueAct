@@ -225,8 +225,9 @@ class ATransformerEncoderLayer(nn.Module):
         elif self.model_mode2 in ['utt_emb']:
             # embed DA
             if self.model_mode in ['top_act']:
-                print("not implemented!")
-                exit()
+                da_emb = torch.empty(inputs.shape[0], inputs.shape[1], 1, device=inputs.device) # da_emb.shape = torch.Size([13, 50, 1])
+                for i in range(inputs.shape[0]):
+                    da_emb[i].fill_(src_da_label[i])
             elif self.model_mode in ['all_acts']:
                 da_emb = torch.empty(inputs.shape[0], inputs.shape[1], 4, device=inputs.device)
                 for i in range(inputs.shape[0]):

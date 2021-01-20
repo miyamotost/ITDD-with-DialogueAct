@@ -232,8 +232,9 @@ class TransformerDecoderLayer(nn.Module):
             # embed DA
             # TODO: debug
             if self.model_mode in ['top_act']:
-                print("not implemented!")
-                exit()
+                da_emb = torch.empty(inputs.shape[0], inputs.shape[1], 1, device=inputs.device)
+                for i in range(inputs.shape[0]):
+                    da_emb[i].fill_(tgt_da_label[0][i])
             elif self.model_mode in ['all_acts']:
                 da_emb = torch.empty(inputs.shape[0], inputs.shape[1], 4, device=inputs.device)
                 for i in range(inputs.shape[0]):
