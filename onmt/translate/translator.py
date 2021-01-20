@@ -206,6 +206,11 @@ class Translator(object):
         all_predictions = []
 
         for i, batch in enumerate(data_iter):
+            # dammy label
+            if self.model_mode in ["default"]:
+                batch.tgt_da_label = torch.empty(1, batch.tgt.shape[1], device=batch.tgt.device)
+                batch.src_da_label = torch.empty(3, batch.tgt.shape[1], device=batch.tgt.device)
+
             batch_data = self.translate_batch(
                 batch, data, attn_debug, fast=self.fast
             )
@@ -344,10 +349,14 @@ class Translator(object):
                     batch.src_da_label[:, 8], batch.src_da_label[:, 9], batch.src_da_label[:, 10], batch.src_da_label[:, 11]
                 )
             )
-        else:
+        elif self.model_mode in ['top_act']:
             enc_states, his_memory_bank, src_memory_bank, knl_memory_bank, src_lengths = self.model.encoder(
                 src, knl, src_lengths, knl_lengths,
                 src_da_label=(batch.src_da_label[:, 0], batch.src_da_label[:, 1], batch.src_da_label[:, 2])
+            )
+        else:
+            enc_states, his_memory_bank, src_memory_bank, knl_memory_bank, src_lengths = self.model.encoder(
+                src, knl, src_lengths, knl_lengths
             )
 
         if src_lengths is None:
@@ -903,9 +912,16 @@ class Translator(object):
 
         width = 10000
         res_pred3 = 0
+        exception_count = 0
         for idx in range(0, len(sentences), width):
-            res_pred3 += sum(distinct_n_sentence_level(sentence, 3) for sentence in sentences[idx:idx + width])
-        res_pred3 = res_pred3 / len(sentences)
+            for sentence in sentences[idx:idx + width]:
+                try:
+                    res_pred3 += distinct_n_sentence_level(sentence, 3)
+                except Exception as e:
+                    exception_count += 1
+                    print(e)
+                    continue
+        res_pred3 = res_pred3 / (len(sentences) - exception_count)
 
         # output
         msg = '>> Distinct (gold: 1/2/3 = {}/{}/{}, pred: 1/2/3 = {}/{}/{})'.format(
